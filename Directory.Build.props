@@ -1,0 +1,32 @@
+<Project>
+
+  <!-- Общие свойства всех проектов решения. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- XML-комментарии забирает генератор OpenAPI. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- CS1591: не требовать `///` у каждого публичного типа. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- ⚠ Аудит зависимостей явно: умолчания SDK меняются между версиями. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+
+    <!-- Низкие и средние — предупреждения, чтобы не тянуло выключить аудит целиком. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902</WarningsNotAsErrors>
+
+    <Product>Kerio Cert Manager</Product>
+    <Company>danrey</Company>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    ⚠ Только для стенда и тестов: эмулятор Key Manager Plus и серверов Kerio Connect по настоящему HTTPS.
+    В образ сервиса не попадает; свой образ — для демо-стека docker-compose.demo.yml.
+  -->
+  <PropertyGroup>
+    <RootNamespace>KerioCertManager.Emulators</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

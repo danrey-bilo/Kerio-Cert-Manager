@@ -1,0 +1,154 @@
+# Тег vX.Y.Z → тесты, образ в Docker Hub (SBOM, происхождение, проверка уязвимостей) и страница релиза.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: danreero/kerio_cert_manager
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets:
+      MODULES_TOKEN: ${{ secrets.MODULES_TOKEN }}
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Секреты Docker Hub — в окружении release с обязательным подтверждением.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+          token: ${{ secrets.MODULES_TOKEN }}
+
+      - name: Версия
+        id: v
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # Сначала локально — проверка уязвимостей до публикации.
+      - name: Сборка
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: KerioCertManager.Api/Dockerfile
+          pull: true
+          load: true
+          tags: ${{ env.IMAGE }}:scan
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+
+      - name: Уязвимости образа
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Публикация
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: KerioCertManager.Api/Dockerfile
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: docker.io/${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Файлы релиза
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          docker pull "$IMAGE:$VERSION"
+
+          PKG="kerio-cert-manager-$TAG"
+          mkdir -p "pkg/$PKG"
+          docker save "$IMAGE:$VERSION" -o "pkg/$PKG/kerio-cert-manager-image-$TAG.tar"
+          sed "s|\${KCM_IMAGE:-[^}]*}|\${KCM_IMAGE:-$IMAGE:$VERSION}|" deploy/portainer/docker-compose.yml \
+            > "pkg/$PKG/docker-compose.yml"
+          sed "s|^KCM_IMAGE=.*|KCM_IMAGE=$IMAGE:$VERSION|" deploy/portainer/.env.example > "pkg/$PKG/.env.example"
+          sed -e "s|vX\.Y\.Z|$TAG|g" -e "s|:X\.Y\.Z|:$VERSION|g" deploy/portainer/README.md > "pkg/$PKG/README.md"
+          cp LICENSE LICENSE.ru.md "pkg/$PKG/"
+          (cd pkg && zip -qr "../$PKG.zip" "$PKG")
+
+          mkdir -p "cli/kerio-cert-manager/scripts"
+          sed "s|\${KCM_IMAGE:-[^}]*}|\${KCM_IMAGE:-$IMAGE:$VERSION}|" docker-compose.yml \
+            > "cli/kerio-cert-manager/docker-compose.yml"
+          cp .env.example "cli/kerio-cert-manager/.env.example"
+          cp LICENSE LICENSE.ru.md "cli/kerio-cert-manager/"
+          cp scripts/gen-secrets.sh scripts/set-tunnel-token.sh scripts/reset-access.sh "cli/kerio-cert-manager/scripts/"
+          chmod +x cli/kerio-cert-manager/scripts/*.sh
+          (cd cli && zip -qr "../kerio-cert-manager-cli-$TAG.zip" kerio-cert-manager)
+
+          awk -v v="$VERSION" '/^## / { show = ($0 == "## [" v "]" || index($0, "## [" v "] ") == 1); next } show' \
+            CHANGELOG.md | sed '/./,$!d' > changes.md
+          {
+            if [ -s changes.md ]; then
+              printf '## Что нового\n\n'
+              cat changes.md
+              printf '\n'
+            fi
+            sed -e "s|{TAG}|$TAG|g" -e "s|{VERSION}|$VERSION|g" -e "s|{IMAGE}|$IMAGE|g" \
+              -e "s|{REPOSITORY}|$GITHUB_REPOSITORY|g" .github/release-notes.md
+          } > notes.md
+
+          sha256sum "$PKG.zip" "kerio-cert-manager-cli-$TAG.zip" > SHA256SUMS
+
+      - name: Страница релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --title "Kerio Cert Manager $TAG" \
+            --notes-file notes.md \
+            --verify-tag \
+            "kerio-cert-manager-$TAG.zip" \
+            "kerio-cert-manager-cli-$TAG.zip" \
+            SHA256SUMS

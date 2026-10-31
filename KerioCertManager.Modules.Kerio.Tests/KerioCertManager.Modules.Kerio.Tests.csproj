@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xunit v3 собирает тестовый проект в исполняемый файл; без этого он не запустится -->
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <!-- Аренда серверов, jsonb и text[] на подделке не проверяются: настоящий PostgreSQL. -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KerioCertManager.Modules.Kerio\KerioCertManager.Modules.Kerio.csproj" />
+    <ProjectReference Include="..\KerioCertManager.Modules.KeyManager\KerioCertManager.Modules.KeyManager.csproj" />
+    <!-- Kerio и KMP по настоящему HTTPS: тот же эмулятор, что в демо-стеке. -->
+    <ProjectReference Include="..\KerioCertManager.Emulators\KerioCertManager.Emulators.csproj" />
+    <ProjectReference Include="..\modules\crypto\src\Modules.Crypto\Modules.Crypto.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Shouldly" />
+  </ItemGroup>
+
+</Project>

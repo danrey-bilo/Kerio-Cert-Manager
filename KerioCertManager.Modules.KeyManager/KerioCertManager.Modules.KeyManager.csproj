@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- Даёт библиотеке типы ASP.NET (контроллеры, DI, фоновые службы), не делая её веб-приложением -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Свои тесты видят внутренности модуля, чужие — нет (правило 1). -->
+    <InternalsVisibleTo Include="KerioCertManager.Modules.KeyManager.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <!-- ToTable, HasColumnType, FromSql, ExecuteSql живут в реляционном пакете, а не в ядре -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <!--
+      Провайдер нужен набору миграций модуля (KeyManagerSchema): схему модуль несёт сам, как модули
+      EAMS (решение 0114). Рабочий контекст по-прежнему настраивает хост.
+    -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- SignedCms: цепочка из PKCS#7 (P7B), когда PEM из KMP — один сертификат -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ⚠ Только фундамент модулей EAMS: ядро (контракты почты, настроек, журнала, базы) и крипта
+      (конверт секретов). Соседние модули — через контракты ядра, не ссылками (правило 1).
+    -->
+    <ProjectReference Include="..\modules\core\src\Modules.Core\Modules.Core.csproj" />
+    <ProjectReference Include="..\modules\crypto\src\Modules.Crypto\Modules.Crypto.csproj" />
+  </ItemGroup>
+
+</Project>

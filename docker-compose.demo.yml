@@ -1,0 +1,147 @@
+# Демо-стенд: сервис + эмулятор Key Manager Plus и двух серверов Kerio Connect + Mailpit.
+# Учебный удостоверяющий центр и известные пароли — только на этом компьютере, без туннеля.
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+#
+#   Панель                http://localhost:18001      admin@demo.local / Demo-Admin-Passw0rd!
+#   Панель стенда         http://localhost:18080      «продлить» сертификат в KMP, «залипнуть» Kerio
+#   Письма (Mailpit)      http://localhost:18025
+#
+# Затем: Настройки → Key Manager Plus → ключ API «demo-api-key»;
+# Серверы → Подключить: https://emulators:4041 (или :4042), логин kcm / Demo-Passw0rd!.
+name: kerio-cert-manager-demo
+
+x-env: &service-env
+  ASPNETCORE_ENVIRONMENT: Production
+  # ⚠ Демо-ключ известен всем: сервис принимает его только с KCM_DEMO_MODE=true.
+  KCM_DEMO_MODE: "true"
+  KCM_MASTER_KEK: "1:ZGVtby1rZWstbm90LWZvci1wcm9kdWN0aW9uLXVzZSE="
+  SSL_CERT_FILE: /emulator/trust-bundle.pem
+  Settings__keymanager.enabled: "true"
+  Settings__keymanager.base_url: "https://emulators:6565"
+  Settings__keymanager.poll_minutes: "1"
+  Settings__mail.enabled: "true"
+  Settings__mail.smtp_host: "mailpit"
+  Settings__mail.smtp_port: "1025"
+  Settings__mail.smtp_security: "none"
+  Settings__mail.from_address: "kcm@demo.local"
+  Settings__mail.from_name: "Kerio Cert Manager"
+  Settings__server.public_url: "http://localhost:${KCM_DEMO_PORT:-18001}"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: KerioCertManager.Api/Dockerfile
+    image: kerio-cert-manager:demo
+    restart: unless-stopped
+    stop_grace_period: 2m
+    environment:
+      <<: *service-env
+      ASPNETCORE_HTTP_PORTS: "8001"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=kcm;Username=kcm_app;GSS Encryption Mode=Disable"
+      KCM_POSTGRES_PASSWORD: "demo-app-password"
+    volumes:
+      - emulator-data:/emulator:ro
+    ports:
+      - "127.0.0.1:${KCM_DEMO_PORT:-18001}:8001"
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "dotnet", "KerioCertManager.Api.dll", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      emulators:
+        condition: service_started
+
+  migrate:
+    image: kerio-cert-manager:demo
+    build:
+      context: .
+      dockerfile: KerioCertManager.Api/Dockerfile
+    command: ["migrate"]
+    restart: "no"
+    environment:
+      <<: *service-env
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=kcm;Username=kcm;GSS Encryption Mode=Disable"
+      KCM_POSTGRES_PASSWORD: "demo-owner-password"
+      KCM_APP_ROLE: kcm_app
+      KCM_APP_PASSWORD: "demo-app-password"
+      KCM_INIT_ADMIN_EMAIL: "admin@demo.local"
+      KCM_INIT_ADMIN_PASSWORD: "Demo-Admin-Passw0rd!"
+    volumes:
+      - emulator-data:/emulator:ro
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emulators:
+        condition: service_started
+
+  emulators:
+    build:
+      context: .
+      dockerfile: KerioCertManager.Emulators/Dockerfile
+    image: kerio-cert-manager-emulators:demo
+    restart: unless-stopped
+    environment:
+      EMULATOR_PUBLIC_URL: "http://emulators:8080"
+      EMULATOR_KERIO: "kerio-a:4041:993,kerio-b:4042:995"
+      EMULATOR_CERTIFICATES: "mail.demo.local=12,*.demo.local=200,webmail.demo.local=45"
+    volumes:
+      - emulator-data:/data
+    ports:
+      - "127.0.0.1:${KCM_DEMO_EMULATOR_PORT:-18080}:8080"
+    <<: *hardening
+
+  mailpit:
+    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KCM_DEMO_MAIL_PORT:-18025}:8025"
+    <<: *hardening
+
+  postgres:
+    image: postgres:16.15@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kcm
+      POSTGRES_USER: kcm
+      POSTGRES_PASSWORD: "demo-owner-password"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcm -d kcm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
+  emulator-data:

@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="KerioCertManager.Api/KerioCertManager.Api.csproj" />
+    <Project Path="KerioCertManager.Modules.KeyManager/KerioCertManager.Modules.KeyManager.csproj" />
+    <Project Path="KerioCertManager.Modules.Kerio/KerioCertManager.Modules.Kerio.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="KerioCertManager.Emulators/KerioCertManager.Emulators.csproj" />
+  </Folder>
+  <Folder Name="/modules/">
+    <Project Path="modules/core/src/Modules.Core/Modules.Core.csproj" />
+    <Project Path="modules/crypto/src/Modules.Crypto/Modules.Crypto.csproj" />
+    <Project Path="modules/hosting/src/Modules.Hosting/Modules.Hosting.csproj" />
+    <Project Path="modules/identity/src/Modules.Identity/Modules.Identity.csproj" />
+    <Project Path="modules/tokens/src/Modules.Tokens/Modules.Tokens.csproj" />
+    <Project Path="modules/settings/src/Modules.Settings/Modules.Settings.csproj" />
+    <Project Path="modules/mail/src/Modules.Mail/Modules.Mail.csproj" />
+    <Project Path="modules/audit/src/Modules.Audit/Modules.Audit.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="KerioCertManager.Modules.KeyManager.Tests/KerioCertManager.Modules.KeyManager.Tests.csproj" />
+    <Project Path="KerioCertManager.Modules.Kerio.Tests/KerioCertManager.Modules.Kerio.Tests.csproj" />
+    <Project Path="KerioCertManager.IntegrationTests/KerioCertManager.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

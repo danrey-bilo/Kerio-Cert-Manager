@@ -1,0 +1,168 @@
+# Стек для Portainer (Stacks → Add stack → Upload) или `docker compose up -d`. Подробно — README.md рядом.
+# Значения — в .env (Portainer: «Load variables from .env file»). Обновление — новый KCM_IMAGE и «Update the stack».
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: postgres:16.15@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kcm
+      POSTGRES_USER: kcm
+      POSTGRES_PASSWORD_FILE: /run/secrets/kcm_postgres_password
+    secrets:
+      - kcm_postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Только внутренняя сеть.
+    networks:
+      - db
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    mem_limit: 1g
+    pids_limit: 256
+    logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcm -d kcm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Разово: схема, роль kcm_app и, если заданы, первый администратор или сброс доступа.
+  migrate:
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    command: ["migrate"]
+    restart: "no"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=kcm;Username=kcm;GSS Encryption Mode=Disable"
+      KCM_POSTGRES_PASSWORD_FILE: /run/secrets/kcm_postgres_password
+      KCM_MASTER_KEK_FILE: /run/secrets/kcm_master_kek
+      KCM_APP_ROLE: kcm_app
+      KCM_APP_PASSWORD_FILE: /run/secrets/kcm_app_password
+      KCM_INIT_ADMIN_EMAIL: ${KCM_INIT_ADMIN_EMAIL:-}
+      KCM_INIT_ADMIN_PASSWORD: ${KCM_INIT_ADMIN_PASSWORD:-}
+      KCM_RESET_ACCESS_EMAIL: ${KCM_RESET_ACCESS_EMAIL:-}
+      KCM_RESET_ACCESS_PASSWORD: ${KCM_RESET_ACCESS_PASSWORD:-}
+    secrets:
+      - kcm_postgres_password
+      - kcm_master_kek
+      - kcm_app_password
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - db
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8001"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=kcm;Username=kcm_app;Maximum Pool Size=40;GSS Encryption Mode=Disable"
+      KCM_POSTGRES_PASSWORD_FILE: /run/secrets/kcm_app_password
+      KCM_MASTER_KEK_FILE: /run/secrets/kcm_master_kek
+      # ⚠ X-Forwarded-* — только от адреса cloudflared (не всей подсети) и своего прокси, если задан.
+      ForwardedHeaders__KnownProxies: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+      ForwardedHeaders__KnownNetworks: ${KCM_TRUSTED_PROXY_NETWORKS:-}
+    secrets:
+      - kcm_master_kek
+      - kcm_app_password
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Наружу — только через туннель.
+    ports:
+      - "127.0.0.1:${KCM_HTTP_PORT:-8001}:8001"
+    networks:
+      default:
+      db:
+      # Без закреплённого адреса: разовые команды стека иначе спорили бы с работающим API за него.
+      edge:
+    cpus: 2
+    mem_limit: 1g
+    pids_limit: 512
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "dotnet", "KerioCertManager.Api.dll", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # В Cloudflare сервис туннеля — HTTP `api:8001`.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.5@sha256:1b1d34d0a9c0bfca9de72db8460d328db3f19edd2b96169114e3e893a97bbe53
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "run"]
+    environment:
+      TUNNEL_TOKEN_FILE: /run/secrets/cloudflare_tunnel_token
+    secrets:
+      - cloudflare_tunnel_token
+    <<: *hardening
+    read_only: true
+    networks:
+      edge:
+        ipv4_address: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+    mem_limit: 256m
+    pids_limit: 128
+    logging: *logging
+    depends_on:
+      api:
+        condition: service_healthy
+
+# ⚠ Секреты — из переменных стека в файлы /run/secrets: в `docker inspect` и окружении контейнеров их нет.
+secrets:
+  kcm_master_kek:
+    environment: KCM_MASTER_KEK
+  kcm_postgres_password:
+    environment: POSTGRES_PASSWORD
+  kcm_app_password:
+    environment: KCM_APP_PASSWORD
+  cloudflare_tunnel_token:
+    environment: CLOUDFLARE_TUNNEL_TOKEN
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+  # База, без выхода наружу.
+  db:
+    internal: true
+  # Туннель и API; подсеть закреплена, адрес cloudflared — вне диапазона выдачи остальным.
+  edge:
+    ipam:
+      config:
+        - subnet: ${KCM_TUNNEL_SUBNET:-172.31.250.0/28}
+          ip_range: ${KCM_TUNNEL_RANGE:-172.31.250.8/29}

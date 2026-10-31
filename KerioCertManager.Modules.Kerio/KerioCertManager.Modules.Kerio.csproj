@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- Типы ASP.NET (контроллеры, DI, фоновые службы) без превращения библиотеки в веб-приложение -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Словари текстов сервера: русский шаблон → перевод (Localization/ServerTexts.cs). -->
+    <EmbeddedResource Include="Localization\*.json" />
+    <None Remove="Localization\*.json" />
+    <Content Remove="Localization\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Свои тесты видят внутренности модуля, чужие — нет (правило 1). -->
+    <InternalsVisibleTo Include="KerioCertManager.Modules.Kerio.Tests" />
+    <InternalsVisibleTo Include="KerioCertManager.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <!-- Набор миграций модуль несёт сам (решение EAMS 0114); рабочий контекст настраивает хост. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- MIT: ключ в устаревшем PEM OpenSSL «Proc-Type: 4,ENCRYPTED» .NET сам не открывает -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Фундамент модулей EAMS: ядро и крипта. Источник сертификатов — модуль Key Manager Plus, только
+      через его публичный контракт ICertificateSource.
+    -->
+    <ProjectReference Include="..\modules\core\src\Modules.Core\Modules.Core.csproj" />
+    <ProjectReference Include="..\modules\crypto\src\Modules.Crypto\Modules.Crypto.csproj" />
+    <ProjectReference Include="..\KerioCertManager.Modules.KeyManager\KerioCertManager.Modules.KeyManager.csproj" />
+  </ItemGroup>
+
+</Project>

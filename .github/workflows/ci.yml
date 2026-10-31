@@ -1,0 +1,59 @@
+# Сборка, тесты и проверка зависимостей на каждый push и pull request в main.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+    secrets:
+      MODULES_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # ⚠ Действия — только по хешу коммита. MODULES_TOKEN — чтение закрытых модулей module-*.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+          token: ${{ secrets.MODULES_TOKEN }}
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: KerioCertManager.Web/package-lock.json
+
+      - name: Панель
+        working-directory: KerioCertManager.Web
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+          npm run build
+
+      - name: Сборка
+        run: dotnet build KerioCertManager.slnx -c Release
+
+      - name: Уязвимые пакеты NuGet
+        run: |
+          dotnet list KerioCertManager.slnx package --vulnerable --include-transitive | tee vulnerable.txt
+          ! grep -qE "(High|Critical)" vulnerable.txt
+
+      - name: Тесты
+        run: dotnet test --solution KerioCertManager.slnx -c Release --no-build
