@@ -423,12 +423,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
     [Fact]
     public async Task Выключенное_оповещение_не_уходит()
     {
-        host.Settings.Values["mail.enabled"] = true;
-        host.Settings.Values["mail.smtp_host"] = "127.0.0.1";
-        host.Settings.Values["mail.smtp_port"] = 1;
-        host.Settings.Values["mail.smtp_security"] = "none";
-        host.Settings.Values["mail.from_address"] = "kcm@example.com";
-        host.Settings.Values["kerio.alert_emails"] = "noc@example.com";
+        НастроитьПочту();
         host.Settings.Values["kerio.alert_expiring"] = false;
 
         var id = await ПодключитьAsync(Стенд.Kerio[0]);
@@ -496,10 +491,14 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             .ShouldHaveSingleItem()!["origin"]!.GetValue<string>().ShouldBe("managed");
     }
 
-    /// <summary>⚠ Очередь установки: за проход — один сертификат; нажатые встают первыми и копятся по порядку нажатия.</summary>
+    /// <summary>
+    /// ⚠ Очередь установки: за проход — один сертификат; нажатые встают первыми и копятся по порядку нажатия. Об удачах
+    /// очереди — одно сводное письмо, когда она опустела; одиночная установка — обычным письмом.
+    /// </summary>
     [Fact]
     public async Task Очередь_ставит_по_одному_сертификату_за_проход()
     {
+        НастроитьПочту();
         var kerio = Стенд.Kerio[0];
         string[] имена = ["a.demo.local", "b.demo.local", "c.demo.local", "d.demo.local"];
         var выпуски = имена.ToDictionary(и => и, и => Стенд.Kmp.Issue(и, TimeSpan.FromDays(90)));
@@ -512,6 +511,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         (await ЦиклAsync()).ShouldBeTrue("в очереди ещё есть что ставить");
 
         Стоят().ShouldBe(1, "за проход — один сертификат");
+        (await ТемыAsync("kerio_deployed")).ShouldBeEmpty("в очереди несколько — удача ждёт сводки");
         var очередь = Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)));
         очередь.Count.ShouldBe(3);
 
@@ -532,6 +532,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
 
         await ЦиклAsync();
         Стоят().ShouldBe(3);
+        (await ТемыAsync("kerio_queue_summary")).ShouldBeEmpty("очередь ещё не пуста");
 
         (await ЦиклAsync()).ShouldBeFalse("очередь пуста");
         Стоят().ShouldBe(4);
@@ -539,6 +540,54 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
 
         var установки = await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct);
         установки!.Count(у => у!["trigger"]!.GetValue<string>() == "manual").ShouldBe(2);
+
+        (await ТемыAsync("kerio_deployed")).ShouldBeEmpty("установки из очереди — не по письму на каждую");
+        (await ТемыAsync("kerio_queue_summary")).ShouldHaveSingleItem("одно письмо, когда очередь опустела")
+            .ShouldBe("Очередь установки на «Kerio kerio-a» пройдена: установлено 4 из 4");
+
+        var журнал = await клиент.GetFromJsonAsync<JsonArray>($"/api/kerio/notifications?server_id={id}", Ct);
+        журнал!.Where(з => з!["event"]!.GetValue<string>() == "queue_summary").ShouldHaveSingleItem()!["level"]!.GetValue<string>()
+            .ShouldBe("info");
+
+        var продление = Стенд.Kmp.Issue(имена[0], TimeSpan.FromDays(120));
+        (await ЦиклAsync()).ShouldBeFalse("продление одного — очередь из одного");
+        kerio.Store.ShouldContain(з => з.Certificate.SerialNumber == продление.Certificate.SerialNumber);
+
+        (await ТемыAsync("kerio_deployed")).ShouldHaveSingleItem("одиночная установка — обычным письмом").ShouldContain(имена[0]);
+        (await ТемыAsync("kerio_queue_summary")).Count.ShouldBe(1);
+    }
+
+    /// <summary>⚠ Отказ посреди очереди — письмом сразу; удачи — одним сводным письмом, когда очередь опустела.</summary>
+    [Fact]
+    public async Task Отказ_в_очереди_пишется_сразу_удачи_сводкой()
+    {
+        НастроитьПочту();
+        var kerio = Стенд.Kerio[0];
+        string[] имена = ["a.demo.local", "b.demo.local", "c.demo.local"];
+
+        foreach (var имя in имена)
+        {
+            Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90));
+        }
+
+        var id = await ПодключитьAsync(kerio);
+
+        (await host.CreateClient().PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = имена }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+        (await ЦиклAsync()).ShouldBeTrue();
+
+        kerio.FailingMethods.Add("ConnectCertificate.importCertificate");
+        await ЦиклAsync();
+        kerio.FailingMethods.Clear();
+
+        (await ТемыAsync("kerio_deploy_failed")).ShouldHaveSingleItem("отказ не ждёт конца очереди").ShouldContain(имена[1]);
+        (await ТемыAsync("kerio_queue_summary")).ShouldBeEmpty();
+
+        (await ЦиклAsync()).ShouldBeFalse("отказавший ждёт паузы перед повтором — очередь пуста");
+
+        (await ТемыAsync("kerio_deployed")).ShouldBeEmpty();
+        (await ТемыAsync("kerio_queue_summary")).ShouldHaveSingleItem()
+            .ShouldBe("🟠 Очередь установки на «Kerio kerio-a» пройдена: установлено 2 из 3");
     }
 
     /// <summary>⚠ Слот установки один на весь сервис: второй не возьмёт его, пока первый не отпустит; чужой не отпустит.</summary>
@@ -684,6 +733,27 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         await scope.ServiceProvider.GetRequiredService<AppDbContext>().Set<KerioCertManager.Modules.Kerio.Domain.KerioServer>()
             .Where(с => с.Id == id)
             .ExecuteUpdateAsync(set => set.SetProperty(с => с.LeaseUntil, до).SetProperty(с => с.LeaseOwner, владелец), Ct);
+    }
+
+    /// <summary>Почта настроена (письма не уходят: SMTP закрыт), получатель писем о серверах — noc@example.com.</summary>
+    private void НастроитьПочту()
+    {
+        host.Settings.Values["mail.enabled"] = true;
+        host.Settings.Values["mail.smtp_host"] = "127.0.0.1";
+        host.Settings.Values["mail.smtp_port"] = 1;
+        host.Settings.Values["mail.smtp_security"] = "none";
+        host.Settings.Values["mail.from_address"] = "kcm@example.com";
+        host.Settings.Values["kerio.alert_emails"] = "noc@example.com";
+    }
+
+    /// <summary>Темы писем этого вида в очереди почты, по порядку.</summary>
+    private async Task<List<string>> ТемыAsync(string kind)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database
+            .SqlQuery<string>($"SELECT subject AS \"Value\" FROM mail_outbox WHERE kind = {kind} ORDER BY created_at")
+            .ToListAsync(Ct);
     }
 
     /// <summary>Проход; <c>true</c> — в очереди установки ещё есть что ставить.</summary>

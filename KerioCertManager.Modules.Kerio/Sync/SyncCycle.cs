@@ -341,6 +341,12 @@ internal sealed class SyncCycle(
         // ⚠ Один сертификат за проход: остальные ждут следующего, а сервер не занят установками на час.
         if (очередь.Count > 0 && проверка.ApiError is null)
         {
+            // В очереди несколько — об удачах одно письмо, когда она опустеет; отказы пишутся сразу.
+            if (очередь.Count > 1)
+            {
+                сервер.QueueReportSince ??= clock.GetUtcNow();
+            }
+
             поставлен = очередь[0];
             очередь.RemoveAt(0);
             итог = await ПоочерёдноAsync(сервер, установки[поставлен], cancellationToken);
@@ -398,8 +404,36 @@ internal sealed class SyncCycle(
 
         await db.SaveChangesAsync(cancellationToken);
 
+        if (очередь.Count == 0 && сервер.QueueReportSince is { } с)
+        {
+            await СводкаAsync(сервер, с, cancellationToken);
+        }
+
         await notifier.AlertAsync(сервер, предупреждения, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Очередь опустела: одно письмо обо всех установках с <paramref name="since"/>.</summary>
+    private async Task СводкаAsync(KerioServer сервер, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        сервер.QueueReportSince = null;
+
+        if (!await settings.GetAsync(KerioSettings.AlertDeployed, cancellationToken))
+        {
+            return;
+        }
+
+        var установки = await db.Set<KerioDeployment>()
+            .AsNoTracking()
+            .Where(у => у.ServerId == сервер.Id && у.StartedAt >= since)
+            .OrderBy(у => у.StartedAt)
+            .Select(у => new QueueReport.Entry(у.CommonName, у.Outcome, у.NotAfter, у.FailedStep, у.Error))
+            .ToListAsync(cancellationToken);
+
+        if (QueueReport.Build(сервер.Name, установки) is { } сводка)
+        {
+            await notifier.SendQueueReportAsync(сервер, сводка, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -973,7 +1007,10 @@ internal sealed class SyncCycle(
         }
     }
 
-    /// <summary>Письмо об итоге: удача — всегда; неудача — не чаще срока повтора на один выпуск.</summary>
+    /// <summary>
+    /// Письмо об итоге: удача — сразу, а из очереди — в сводке, когда очередь опустеет; неудача — сразу, но не чаще
+    /// срока повтора на один выпуск.
+    /// </summary>
     private async Task ОтчётAsync(
         KerioServer сервер, KerioDeployment установка, DeployResult итог, DateTimeOffset? следующая, bool дополнительный, CancellationToken cancellationToken)
     {
@@ -1000,7 +1037,7 @@ internal sealed class SyncCycle(
         switch (итог.Outcome)
         {
             case DeployOutcomes.Succeeded:
-                if (await settings.GetAsync(KerioSettings.AlertDeployed, cancellationToken))
+                if (сервер.QueueReportSince is null && await settings.GetAsync(KerioSettings.AlertDeployed, cancellationToken))
                 {
                     await notifier.SendAsync(
                         сервер,

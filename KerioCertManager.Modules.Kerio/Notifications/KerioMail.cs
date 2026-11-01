@@ -2,12 +2,18 @@ using Modules.Core.Contracts.Mail;
 
 namespace KerioCertManager.Modules.Kerio.Notifications;
 
-/// <summary>Письма модуля Kerio: установка удалась, не удалась, предупреждение.</summary>
+/// <summary>Письма модуля Kerio: установка удалась, не удалась, сводка очереди, предупреждение.</summary>
 internal sealed class KerioMail : IMailTemplateProvider
 {
     public const string Deployed = "kerio_deployed";
 
     public const string Failed = "kerio_deploy_failed";
+
+    /// <summary>Очередь опустела: одно письмо обо всех её установках вместо письма на каждую.</summary>
+    public const string Summary = "kerio_queue_summary";
+
+    /// <summary>Событие сводки в журнале оповещений.</summary>
+    public const string SummaryEvent = "queue_summary";
 
     public const string Warning = "kerio_warning";
 
@@ -33,12 +39,19 @@ internal sealed class KerioMail : IMailTemplateProvider
         new(Failed, MailLocales.En, "{title}: {server}",
             "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installations log of the panel.\n"),
 
+        new(Summary, MailLocales.Ru, "{title}",
+            "{message}\n\n" + Таблица + "\n\nПодробности по шагам — в разделе «Журнал установок» панели.\n"),
+        new(Summary, MailLocales.Uk, "{title}",
+            "{message}\n\n" + Таблица + "\n\nПодробиці по кроках — у розділі «Журнал встановлень» панелі.\n"),
+        new(Summary, MailLocales.En, "{title}",
+            "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installations log of the panel.\n"),
+
         new(Warning, MailLocales.Ru, "{title}", "{message}\n\n" + Таблица + "\n"),
         new(Warning, MailLocales.Uk, "{title}", "{message}\n\n" + Таблица + "\n"),
         new(Warning, MailLocales.En, "{title}", "{message}\n\n" + Таблица + "\n"),
     ];
 
-    public IReadOnlyCollection<string> UnthrottledKinds { get; } = [Deployed, Failed, Warning];
+    public IReadOnlyCollection<string> UnthrottledKinds { get; } = [Deployed, Failed, Summary, Warning];
 
     /// <summary>Заголовки колонок таблицы подробностей.</summary>
     public static IReadOnlyList<string> Columns(string locale) => locale switch
@@ -46,6 +59,14 @@ internal sealed class KerioMail : IMailTemplateProvider
         MailLocales.Ru => ["Параметр", "Значение"],
         MailLocales.Uk => ["Параметр", "Значення"],
         _ => ["Item", "Value"],
+    };
+
+    /// <summary>Заголовки колонок сводки очереди.</summary>
+    public static IReadOnlyList<string> SummaryColumns(string locale) => locale switch
+    {
+        MailLocales.Ru => ["Сертификат", "Итог", "Подробности"],
+        MailLocales.Uk => ["Сертифікат", "Результат", "Подробиці"],
+        _ => ["Certificate", "Result", "Details"],
     };
 
     /// <summary>Подписи строк таблицы на языке письма.</summary>

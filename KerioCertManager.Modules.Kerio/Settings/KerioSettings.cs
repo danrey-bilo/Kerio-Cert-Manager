@@ -114,7 +114,8 @@ internal static class KerioSettings
         "kerio.alert_deployed",
         Default: true,
         "Mail: certificate installed",
-        "Report every successful installation.",
+        "Report successful installations: a single one at once; a queue of several in one summary letter when "
+        + "the queue is empty.",
         Category,
         IsSecurity: true);
 

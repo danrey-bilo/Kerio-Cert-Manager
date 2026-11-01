@@ -157,6 +157,9 @@ internal sealed class KerioServer
     /// <summary>Очередь установки по последнему проходу: первым — тот, что встанет следующим.</summary>
     public List<string> InstallQueue { get; set; } = [];
 
+    /// <summary>С этого времени копится сводное письмо об установках очереди; <c>null</c> — удача пишется сразу.</summary>
+    public DateTimeOffset? QueueReportSince { get; set; }
+
     /// <summary>Аренда сервера одним проходом: двое не ставят одновременно.</summary>
     public DateTimeOffset? LeaseUntil { get; set; }
 

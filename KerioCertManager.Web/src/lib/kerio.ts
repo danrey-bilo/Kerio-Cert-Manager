@@ -151,6 +151,7 @@ export const EVENT: Record<string, string> = {
   deployed: t('Установлен'),
   deploy_failed: t('Не установлен'),
   rolled_back: t('Возвращён прежний'),
+  queue_summary: t('Сводка очереди'),
   unreachable: t('Недоступен'),
   auth_rejected: t('Пароль отвергнут'),
   not_admin: t('Нет прав'),

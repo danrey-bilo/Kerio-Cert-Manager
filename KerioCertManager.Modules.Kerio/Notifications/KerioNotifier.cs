@@ -109,7 +109,7 @@ internal sealed class KerioNotifier(
     }
 
     /// <summary>Отправить письмо всем получателям сервера; <c>false</c> — почта не настроена или не вышло.</summary>
-    public async Task<bool> SendAsync(
+    public Task<bool> SendAsync(
         KerioServer? server,
         string kind,
         string title,
@@ -118,7 +118,46 @@ internal sealed class KerioNotifier(
         string? commonName = null,
         string? @event = null,
         AlertLevel level = AlertLevel.Info,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ОтправитьAsync(
+            server,
+            kind,
+            title,
+            message,
+            язык => new MailTable(
+                KerioMail.Columns(язык),
+                [.. rows.Select(r => (IReadOnlyList<string>)[KerioMail.Label(r.Key, язык), texts.Translate(r.Value, язык)])]),
+            commonName,
+            @event,
+            level,
+            cancellationToken);
+
+    /// <summary>Сводное письмо об очереди установки: таблица имён с итогом.</summary>
+    public Task<bool> SendQueueReportAsync(KerioServer server, QueueReport.Summary summary, CancellationToken cancellationToken = default) =>
+        ОтправитьAsync(
+            server,
+            KerioMail.Summary,
+            summary.Title,
+            summary.Message,
+            язык => new MailTable(
+                KerioMail.SummaryColumns(язык),
+                [.. summary.Rows.Select(r => (IReadOnlyList<string>)
+                    [r.CommonName, texts.Translate(r.Outcome, язык), texts.Translate(r.Details, язык)])]),
+            "—",
+            KerioMail.SummaryEvent,
+            summary.Level,
+            cancellationToken);
+
+    private async Task<bool> ОтправитьAsync(
+        KerioServer? server,
+        string kind,
+        string title,
+        string message,
+        Func<string, MailTable> table,
+        string? commonName,
+        string? @event,
+        AlertLevel level,
+        CancellationToken cancellationToken)
     {
         var имя = server?.Name ?? "Kerio Cert Manager";
 
@@ -147,11 +186,7 @@ internal sealed class KerioNotifier(
                 ["common_name"] = commonName ?? server?.CommonName ?? "—",
             };
 
-            var таблица = new MailTable(
-                KerioMail.Columns(язык),
-                [.. rows.Select(r => (IReadOnlyList<string>)[KerioMail.Label(r.Key, язык), texts.Translate(r.Value, язык)])]);
-
-            var таблицы = new Dictionary<string, MailTable>(StringComparer.Ordinal) { [KerioMail.TableName] = таблица };
+            var таблицы = new Dictionary<string, MailTable>(StringComparer.Ordinal) { [KerioMail.TableName] = table(язык) };
             var отправлено = 0;
 
             await db.SaveChangesAsync(cancellationToken);

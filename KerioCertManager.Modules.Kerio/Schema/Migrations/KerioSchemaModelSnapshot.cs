@@ -405,6 +405,10 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                         .HasColumnName("previous_serials")
                         .HasDefaultValueSql("'{}'::text[]");
 
+                    b.Property<DateTimeOffset?>("QueueReportSince")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("queue_report_since");
+
                     b.Property<string>("ServedByName")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

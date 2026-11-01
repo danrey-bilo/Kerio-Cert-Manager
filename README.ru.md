@@ -173,7 +173,7 @@ unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 основного архива релиза):
 
 ```bash
-docker pull danreero/kerio_cert_manager:1.0.5
+docker pull danreero/kerio_cert_manager:1.0.6
 ```
 
 **3. Секреты.** Скрипт создаёт мастер-ключ шифрования и два пароля базы в `secrets/`. Существующие файлы не

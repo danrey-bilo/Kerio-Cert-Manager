@@ -239,7 +239,8 @@ queue is not empty, the next pass starts as soon as Kerio has restarted HTTPS (a
 interval. Clicked certificates go first, in the order of the clicks; then expired, missing and soonest-expiring ones.
 Instead of the button, a queued certificate shows *Queued · #N*, the one being installed shows *Installing*, the
 server card shows the queue length, and a banner on top names what is being installed now. There is no limit on the
-number of certificates per server.
+number of certificates per server. A queue of several certificates is reported in one summary e-mail when it is done,
+not one e-mail per installation; a failure is still e-mailed at once.
 
 ## 9. Servers
 
@@ -281,7 +282,7 @@ Kerio store. The filters at the top select by outcome.
 | Certificate expired | The server serves an expired certificate |
 | Not updated automatically | KMP has a renewal, but the server still has the previous one after *N* hours |
 | Installation failed or rolled back | With the reason and the step where it stopped |
-| Certificate installed | A report on every successful installation |
+| Certificate installed | A single installation is reported at once. A queue of several gets one summary e-mail when it is done: how many were installed, how many failed and the result for each name (failures are still e-mailed at once) |
 | Awaiting manual installation | A renewal is available, but automatic installation is off |
 | Server unreachable | After *N* consecutive failed checks |
 | Kerio access | Kerio rejected the password, the account lacks rights, or the certificate failed the trust check |
