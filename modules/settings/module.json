@@ -1,0 +1,13 @@
+{
+  "name": "settings",
+  "project": "Modules.Settings",
+  "version": "0.8.2",
+  "summary": "Настройки системы и личные предпочтения: каталог объявлений модулей, три слоя значений, экран администратора.",
+  "repository": "https://github.com/danrey-bilo/module-settings",
+  "dependencies": [
+    "core"
+  ],
+  "requires": {
+    "core": "0.10.0"
+  }
+}

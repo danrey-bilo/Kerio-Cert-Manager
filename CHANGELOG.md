@@ -115,4 +115,5 @@
   действует на все сертификаты сервера, а своя версия имени, что действует дольше новой, убирается всегда.
 - **Демо-стенд** `docker-compose.demo.yml`: сервис из Docker Hub, эмулятор KMP и двух Kerio Connect по HTTPS
   со своим УЦ и списками отзыва, Mailpit; только на этом компьютере.
-- Модули EAMS: core, crypto, hosting, identity, tokens, settings, mail, audit.
+- Модули EAMS копией в `modules/` на закреплённых версиях: core, crypto, hosting, identity, tokens, settings, mail,
+  audit — весь код для сборки в репозитории, без доступа к другим.

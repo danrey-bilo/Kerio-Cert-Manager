@@ -1,0 +1,8 @@
+{
+  "name": "core",
+  "project": "Modules.Core",
+  "version": "0.10.0",
+  "summary": "Ядро модулей: подключение модуля к приложению, конверт ошибок, «кто вошёл», проверка прав, журнал и настройки как контракты, транзакции, постраничность.",
+  "repository": "https://github.com/danrey-bilo/module-core",
+  "dependencies": []
+}

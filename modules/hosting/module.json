@@ -1,0 +1,13 @@
+{
+  "name": "hosting",
+  "project": "Modules.Hosting",
+  "version": "0.6.1",
+  "summary": "Конвейер веб-хоста: номер обращения, конверт ошибок, личность запроса, проверка прав на каждом эндпоинте, контекст журнала, описание контракта OpenAPI, готовность, замок одного экземпляра, логи без текста исключений.",
+  "repository": "https://github.com/danrey-bilo/module-hosting",
+  "dependencies": [
+    "core"
+  ],
+  "requires": {
+    "core": "0.10.0"
+  }
+}

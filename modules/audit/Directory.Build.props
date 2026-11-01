@@ -1,0 +1,45 @@
+<Project>
+
+  <PropertyGroup>
+    <_ModuleOuterBuild>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))</_ModuleOuterBuild>
+  </PropertyGroup>
+
+  <Import Project="$(_ModuleOuterBuild)" Condition="'$(_ModuleOuterBuild)' != ''" />
+
+  <PropertyGroup>
+    <_ModuleOuterBuild>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))</_ModuleOuterBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(_ModuleOuterBuild)' == ''">
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <_ModuleCard>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)module.json'))</_ModuleCard>
+    <Product>$([System.Text.RegularExpressions.Regex]::Match($(_ModuleCard), '(?&lt;="project"\s*:\s*")[^"]+'))</Product>
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($(_ModuleCard), '(?&lt;="version"\s*:\s*")[^"]+'))</Version>
+    <Company></Company>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ModulesRoot Condition="Exists('$(MSBuildThisFileDirectory)deps')">$(MSBuildThisFileDirectory)deps\</ModulesRoot>
+    <ModulesRoot Condition="!Exists('$(MSBuildThisFileDirectory)deps')">$(MSBuildThisFileDirectory)..\</ModulesRoot>
+  </PropertyGroup>
+
+</Project>

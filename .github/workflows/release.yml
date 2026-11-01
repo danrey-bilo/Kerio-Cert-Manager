@@ -1,4 +1,5 @@
-# Тег vX.Y.Z → тесты, образ в Docker Hub (SBOM, происхождение, проверка уязвимостей) и страница релиза.
+# Тег vX.Y.Z → тесты, проверка опубликованного образа и страница релиза с архивами. Секреты не нужны:
+# образ публикуется заранее (scripts/publish-image.sh), а открытый образ Docker Hub скачивается без входа.
 name: release
 
 on:
@@ -18,15 +19,11 @@ env:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
-    secrets:
-      MODULES_TOKEN: ${{ secrets.MODULES_TOKEN }}
 
   release:
     needs: ci
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    # Секреты Docker Hub — в окружении release с обязательным подтверждением.
-    environment: release
+    timeout-minutes: 30
     permissions:
       contents: write
       id-token: write
@@ -35,8 +32,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          submodules: true
-          token: ${{ secrets.MODULES_TOKEN }}
 
       - name: Версия
         id: v
@@ -44,69 +39,28 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.IMAGE }}
-          flavor: latest=auto
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      # Сначала локально — проверка уязвимостей до публикации.
-      - name: Сборка
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: KerioCertManager.Api/Dockerfile
-          pull: true
-          load: true
-          tags: ${{ env.IMAGE }}:scan
-          build-args: |
-            VERSION=${{ steps.v.outputs.version }}
+      - name: Образ из Docker Hub
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          docker pull "$IMAGE:$VERSION" || {
+            echo "::error::Нет образа $IMAGE:$VERSION — сначала ./scripts/publish-image.sh $VERSION"
+            exit 1
+          }
 
       - name: Уязвимости образа
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.IMAGE }}:scan
+          image-ref: ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-
-      - name: Публикация
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: KerioCertManager.Api/Dockerfile
-          push: true
-          sbom: true
-          provenance: mode=max
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.v.outputs.version }}
-
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: docker.io/${{ env.IMAGE }}
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
 
       - name: Файлы релиза
         env:
           TAG: ${{ steps.v.outputs.tag }}
           VERSION: ${{ steps.v.outputs.version }}
         run: |
-          docker pull "$IMAGE:$VERSION"
-
           PKG="kerio-cert-manager-$TAG"
           mkdir -p "pkg/$PKG"
           docker save "$IMAGE:$VERSION" -o "pkg/$PKG/kerio-cert-manager-image-$TAG.tar"
@@ -139,6 +93,12 @@ jobs:
           } > notes.md
 
           sha256sum "$PKG.zip" "kerio-cert-manager-cli-$TAG.zip" > SHA256SUMS
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            kerio-cert-manager-${{ steps.v.outputs.tag }}.zip
+            kerio-cert-manager-cli-${{ steps.v.outputs.tag }}.zip
 
       - name: Страница релиза
         env:

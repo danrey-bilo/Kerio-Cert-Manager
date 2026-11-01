@@ -19,8 +19,8 @@
 
   <ItemGroup>
     <!--
-      ⚠ Модули EAMS — подмодулями `modules/<имя>`, каждый на закреплённой метке (README, раздел
-      «Модули»). Хост знает, какие модули подключены, но не знает, что внутри: связывает контракты.
+      ⚠ Модули EAMS — копиями в `modules/<имя>` на закреплённой версии (modules/README.md). Хост знает,
+      какие модули подключены, но не знает, что внутри: связывает контракты.
     -->
     <ProjectReference Include="..\modules\core\src\Modules.Core\Modules.Core.csproj" />
     <ProjectReference Include="..\modules\crypto\src\Modules.Crypto\Modules.Crypto.csproj" />

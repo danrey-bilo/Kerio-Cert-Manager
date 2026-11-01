@@ -20,14 +20,13 @@ ARG BUILD_CONFIGURATION=Release
 ARG VERSION=
 WORKDIR /src
 
-# Сначала файлы проектов — слой restore кэшируется. Подмодули `modules/` — целиком (нужен `git submodule update --init`).
+# Сначала файлы проектов — слой restore кэшируется. Модули `modules/` — целиком: это копии с закреплённой версией.
 # ⚠ Каждый свой проект — строкой COPY ниже, иначе publish --no-restore падает.
 COPY ["Directory.Build.props", "Directory.Packages.props", "global.json", "./"]
 COPY ["modules/", "modules/"]
 COPY ["KerioCertManager.Api/KerioCertManager.Api.csproj", "KerioCertManager.Api/"]
 COPY ["KerioCertManager.Modules.KeyManager/KerioCertManager.Modules.KeyManager.csproj", "KerioCertManager.Modules.KeyManager/"]
 COPY ["KerioCertManager.Modules.Kerio/KerioCertManager.Modules.Kerio.csproj", "KerioCertManager.Modules.Kerio/"]
-RUN test -f modules/core/module.json || { echo "Подмодули modules/ пусты: git submodule update --init" >&2; exit 1; }
 RUN dotnet restore "KerioCertManager.Api/KerioCertManager.Api.csproj"
 
 COPY . .

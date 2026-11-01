@@ -1,0 +1,15 @@
+{
+  "name": "identity",
+  "project": "Modules.Identity",
+  "version": "0.10.1",
+  "summary": "Пользователи, вход, пароли (Argon2id), второй фактор (TOTP и код письмом), приглашения, сброс пароля, доверенные устройства.",
+  "repository": "https://github.com/danrey-bilo/module-identity",
+  "dependencies": [
+    "core",
+    "crypto"
+  ],
+  "requires": {
+    "core": "0.10.0",
+    "crypto": "0.5.0"
+  }
+}

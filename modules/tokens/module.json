@@ -1,0 +1,13 @@
+{
+  "name": "tokens",
+  "project": "Modules.Tokens",
+  "version": "0.8.2",
+  "summary": "Сессии и ключи API: выпуск, проверка, обновление с ротацией, отзыв, сужение прав ключа, уборка.",
+  "repository": "https://github.com/danrey-bilo/module-tokens",
+  "dependencies": [
+    "core"
+  ],
+  "requires": {
+    "core": "0.10.0"
+  }
+}

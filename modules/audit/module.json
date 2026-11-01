@@ -1,0 +1,13 @@
+{
+  "name": "audit",
+  "project": "Modules.Audit",
+  "version": "0.9.2",
+  "summary": "Журнал действий: только дописывается, держится цепочкой хешей, пишет отказы прав и замечает массовый вынос секретов.",
+  "repository": "https://github.com/danrey-bilo/module-audit",
+  "dependencies": [
+    "core"
+  ],
+  "requires": {
+    "core": "0.10.0"
+  }
+}

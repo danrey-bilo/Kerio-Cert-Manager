@@ -1,0 +1,15 @@
+{
+  "name": "mail",
+  "project": "Modules.Mail",
+  "version": "0.10.0",
+  "summary": "Очередь писем: шаблоны на трёх языках, отправка по SMTP с повторами, пределы частоты, секреты почты под шифрованием.",
+  "repository": "https://github.com/danrey-bilo/module-mail",
+  "dependencies": [
+    "core",
+    "crypto"
+  ],
+  "requires": {
+    "core": "0.10.0",
+    "crypto": "0.5.0"
+  }
+}
