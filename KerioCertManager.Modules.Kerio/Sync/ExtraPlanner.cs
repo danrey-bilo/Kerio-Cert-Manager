@@ -90,7 +90,7 @@ internal static class ExtraPlanner
                 $"В Key Manager Plus выпуск {имя} (серийный {Fingerprints.Serial(source.SerialNumber)}"
                 + (source.ExpiresOn is { } срок ? $", до {срок:dd.MM.yyyy}" : string.Empty)
                 + "), а автоматическая установка " + (globalAutoDeploy ? "для этого сервера" : "во всём сервисе")
-                + " выключена. Установите его кнопкой «Установить сейчас» во вкладке «Обзор».",
+                + " выключена. Установите его кнопкой «Обновить» у сертификата во вкладке «Обзор».",
                 имя));
 
             return new ExtraPlan(PlanAction.None, null, source, null, предупреждения, true);

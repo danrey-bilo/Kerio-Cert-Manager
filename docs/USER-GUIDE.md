@@ -134,7 +134,7 @@ the window width.
 
 | Setting | Meaning |
 |---|---|
-| **Automatic installation** | A certificate renewed in KMP is installed on the servers by itself. Turned off — only e-mails and the **Install now** button. Each server also has its own switch |
+| **Automatic installation** | A certificate renewed in KMP is installed on the servers by itself. Turned off — only e-mails and the **Update** button. Each server also has its own switch |
 | **Dry-run mode** | Everything is checked, Kerio is not changed. The log records a dry run instead of an installation |
 | **Sync pass** | How often to poll KMP and check the servers, in minutes |
 | **Wait for the new certificate on ports** | How long to wait for the new certificate on every verified port before rolling back, in seconds |
@@ -185,7 +185,7 @@ certificates, the ports to verify, **Install renewed certificates automatically*
 versions**. Every name is checked against the last KMP poll before saving.
 
 The first check of the new server starts right away. If the server already serves the current KMP release, the
-service simply adopts it; otherwise it installs it (or waits for **Install now** if automatic installation is off).
+service simply adopts it; otherwise it installs it (or waits for **Update** if automatic installation is off).
 
 ### 7.1 Editing a server
 
@@ -197,7 +197,7 @@ The pencil in the server row opens two tabs.
 certificate from the list (the certificate stays in Kerio), **Add** adds a name from KMP. Badges show whether the
 certificate is installed, served, or awaiting installation.
 
-- **Install renewed certificates automatically** — turned off: only an e-mail and the **Install now** button.
+- **Install renewed certificates automatically** — turned off: only an e-mail and the **Update** button.
 - **Clean up old certificate versions** — after a successful installation the service removes *its own* previous
   versions of the same name (from KMP or installed by it) and keeps one previous version for a manual rollback.
   Certificates bought or placed by hand are never removed. An own version of a name certificate that is valid longer
@@ -223,12 +223,13 @@ Each server card shows the number of certificates in the store, problems, and th
 certificates. Expanded, it lists:
 
 - **From Key Manager Plus** — the linked certificates: which one is the default, the current release in KMP and its
-  state (*OK*, *Awaiting installation*, *Not installed* with the reason). A certificate that waits — expired, awaiting
-  installation or not installed — has the **Install now** button right in its line: it installs exactly this
-  certificate with a fresh second-factor code; while it is queued the line shows *Installation queued*.
+  state (*OK*, *Awaiting installation*, *Not installed* with the reason).
 - **The store** — every certificate in Kerio: *served* (the default) and *served for name*, its origin
   (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**, **Kerio built-in**), valid until and
-  state.
+  state. When Key Manager Plus has a newer release for a certificate's name that is not in Kerio yet — an expired one,
+  one awaiting installation, or one added by hand — its status has the **Update** button: it installs exactly this
+  certificate with a fresh second-factor code; a name the service did not manage before is taken under management.
+  While the update is queued, the line shows *Queued*.
 
 ## 9. Servers
 
@@ -317,7 +318,7 @@ other than the current one).
 
 - **A certificate is renewed in KMP.** Within one sync pass the service notices it and installs it on every server
   that uses it (or e-mails *Awaiting manual installation* if automatic installation is off), then e-mails a report.
-- **Install now.** Overview → expand the server → **Install now** next to the certificate, with a fresh code. Also
+- **Update.** Overview → expand the server → **Update** under the certificate's status, with a fresh code. Also
   installs an older release
   if you decide so (the service never does this by itself).
 - **Rollback.** If the new certificate does not appear on every verified port, the previous one is restored and
@@ -336,7 +337,7 @@ other than the current one).
 | **The account lacks rights** | The service account needs full administration in Kerio |
 | **Key Manager Plus: Error** | Check the address (a name from the certificate, not an IP), the API key and reachability of port 6565. For an internal CA, give the container the root (`SSL_CERT_FILE`) |
 | **Every installation rolls back** | One of the verified ports does not answer or serves something else. Remove closed ports from the list or open them for the service |
-| **Not installed: the KMP release is older than the installed one** | Protection against rollback. If this is intentional, use **Install now** |
+| **Not installed: the KMP release is older than the installed one** | Protection against rollback. If this is intentional, use **Update** |
 | **A name certificate is installed but not served** | A version of the same name that is valid longer is in the store and is not the service's own (bought or placed by hand). Remove it in Kerio if it is no longer needed |
 | **The address points to the service itself or a reserved network** | Kerio cannot be on loopback or link-local addresses; use the server's real address |
 | **Lost access** | `./scripts/reset-access.sh admin@example.com` on the server (Portainer: `KCM_RESET_ACCESS_EMAIL` / `KCM_RESET_ACCESS_PASSWORD`, then clear them) |

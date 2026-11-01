@@ -12,7 +12,7 @@ internal static class KerioSettings
         Default: true,
         "Automatic installation",
         "Install a renewed certificate on every server with automatic installation turned on. Turn off to "
-        + "pause all automatic changes: checks, warnings and the Install now button keep working.",
+        + "pause all automatic changes: checks, warnings and the Update button keep working.",
         Category,
         IsSecurity: true);
 
@@ -130,7 +130,7 @@ internal static class KerioSettings
         "kerio.alert_pending",
         Default: true,
         "Mail: waiting for manual installation",
-        "Warn when a renewed certificate waits for the Install now button because automatic installation is off.",
+        "Warn when a renewed certificate waits for the Update button because automatic installation is off.",
         Category,
         IsSecurity: true);
 

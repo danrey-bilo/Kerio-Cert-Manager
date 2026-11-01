@@ -174,7 +174,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
 
         host.User.StepUpAt = DateTimeOffset.UtcNow;
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = "other.demo.local" }, Ct)).StatusCode
-            .ShouldBe(HttpStatusCode.BadRequest, "чужое имя — не сертификат этого сервера");
+            .ShouldBe(HttpStatusCode.Conflict, "такого имени нет в Key Manager Plus — обновлять нечем");
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта.ToUpperInvariant() }, Ct)).StatusCode
             .ShouldBe(HttpStatusCode.Accepted);
         (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"]!.GetValue<string>().ShouldBe(Почта);
@@ -183,6 +183,17 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"].ShouldBeNull("запрос погашен проходом");
 
         kerio.ServedCertificate.SerialNumber.ShouldBe(третий.Certificate.SerialNumber);
+
+        // «Обновить» у имени, которое сервис ещё не вёл: берётся под управление и ставится в хранилище.
+        var чужое = Стенд.Kmp.Issue("extra.demo.local", TimeSpan.FromDays(90));
+        await ЦиклAsync();
+        host.User.StepUpAt = DateTimeOffset.UtcNow;
+        (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = "extra.demo.local" }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.Accepted);
+        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["extras"]!.AsArray()
+            .Select(д => д!["common_name"]!.GetValue<string>()).ShouldContain("extra.demo.local");
+        await ЦиклAsync();
+        kerio.Store.ShouldContain(з => з.Certificate.SerialNumber == чужое.Certificate.SerialNumber, "новое имя поставлено в хранилище");
 
         await using (var scope = host.Services.CreateAsyncScope())
         {

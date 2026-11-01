@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { isMobile } from '../lib/device';
 import { fmtDate, fmtDateTime } from '../lib/format';
@@ -34,7 +34,7 @@ function savedOpen(): Record<string, boolean> {
   try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean>; } catch { return {}; }
 }
 
-/** Главная: что за сертификаты на каждом сервере Kerio, откуда они и сколько им осталось; ждущий ставится кнопкой у него. */
+/** Главная: что за сертификаты на каждом сервере Kerio, откуда они и сколько им осталось; устаревший — «Обновить» у него. */
 export function OverviewPage() {
   const { data, error, refresh } = useLoad(() => api.get<Overview>('/api/kerio/overview'));
   const [filter, setFilter] = useState<Filter>('all');
@@ -86,7 +86,7 @@ export function OverviewPage() {
       )}
       {!data.auto_deploy && (
         <Banner tone="warn" icon="pause" title={t('Автоматическая установка на паузе')}
-          text={t('Продлённые сертификаты ждут кнопки «Установить сейчас» — она у каждого такого сертификата ниже.')}
+          text={t('Продлённые сертификаты ждут кнопки «Обновить» — она у каждого такого сертификата в списке сервера.')}
           href="#/settings/sync" action={t('Включить')} />
       )}
 
@@ -163,6 +163,7 @@ function rows(s: KerioServer, warning: number): Row[] {
     served: true,
     origin: managed ? 'managed' : 'foreign',
     kmp_common_name: null,
+    update_from: null,
     state: days === null ? 'unknown' : days < 0 ? 'expired' : days <= warning ? 'expiring' : 'ok',
     tlsOnly: true,
   }];
@@ -176,9 +177,6 @@ interface Managed {
   text: string;
   source: SourceCert | null;
 }
-
-/** Состояния, которые снимает установка текущего выпуска из KMP. */
-const NEEDS_INSTALL: ServerStatus[] = ['expired', 'deploy_failed', 'name_stale', 'update_pending'];
 
 function managedOf(s: KerioServer): Managed[] {
   return [
@@ -198,7 +196,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
   onChanged: () => void;
 }) {
   const { confirm, run } = useOverlay();
-  const [installing, setInstalling] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const c = connection(s);
   const tlsOnly = list.some(r => r.tlsOnly);
   const managed = managedOf(s);
@@ -213,18 +211,36 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
     && (!s.deploy_requested_name || s.deploy_requested_name.toLowerCase() === name.toLowerCase());
   const blocked = !s.enabled ? t('Сервер отключён') : !s.password_set ? t('Не задан пароль учётной записи Kerio') : null;
 
-  const install = async (m: Managed) => {
+  const update = async (r: Row, name: string) => {
+    const same = (n: string | null | undefined) => n?.toLowerCase() === name.toLowerCase();
+    const isDefault = same(s.common_name) || (!s.common_name && r.served);
     if (!await confirm(
-      t('Установить {0}?', m.name),
-      m.isDefault
-        ? t('На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.', s.name)
-        : t('В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.', s.name),
-      t('Установить'),
+      t('Обновить {0}?', name),
+      <>
+        {isDefault
+          ? t('На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.', s.name)
+          : t('В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.', s.name)}
+        {!managed.some(m => same(m.name)) && <> {t('Дальше сервис ведёт это имя сам: следующие продления встанут сами или будут ждать этой кнопки.')}</>}
+      </>,
+      t('Обновить'),
     )) return;
-    setInstalling(true);
-    await run(() => api.post(`/api/kerio/servers/${s.id}/deploy`, { common_name: m.name }), t('Установка поставлена в очередь — ход виден в «Журнале»'));
-    setInstalling(false);
+    setUpdating(true);
+    await run(() => api.post(`/api/kerio/servers/${s.id}/deploy`, { common_name: name }), t('Обновление поставлено в очередь — ход виден в «Журнале»'));
+    setUpdating(false);
     onChanged();
+  };
+
+  /** «Обновить» под состоянием сертификата: в KMP есть выпуск новее, чем лежит в Kerio. */
+  const action = (r: Row): ReactNode => {
+    const name = r.update_from;
+    if (!name) return null;
+    if (queued(name)) return <span className="badge accent">{t('В очереди')}</span>;
+    return (
+      <button type="button" className="primary" disabled={updating || blocked !== null}
+        title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void update(r, name)}>
+        <Icon name="refresh" />{t('Обновить')}
+      </button>
+    );
   };
 
   const byName = new Map<string, string[]>();
@@ -271,14 +287,6 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                     {m.isDefault && <span className="badge accent">{t('по умолчанию')}</span>}
                     {m.source?.expires_on && <span className="muted small">{t('выпуск до {0}', fmtDate(m.source.expires_on))}</span>}
                     <span className={'pill-status ' + STATUS[m.status].tone} title={m.text}>{STATUS[m.status].label}</span>
-                    {queued(m.name) ? (
-                      <span className="badge accent ov-install">{t('Установка в очереди')}</span>
-                    ) : m.source && NEEDS_INSTALL.includes(m.status) && (
-                      <button type="button" className="primary ov-install" disabled={installing || blocked !== null}
-                        title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void install(m)}>
-                        <Icon name="upload" />{t('Установить сейчас')}
-                      </button>
-                    )}
                     {STATUS[m.status].rank <= 4 && m.status !== 'unchecked' && <span className="ov-kmp-text">{m.text}</span>}
                   </li>
                 ))}
@@ -296,7 +304,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                 <p className="ov-note warn-text">{t('Хранилище Kerio не прочитано{0}. Ниже — только сертификат, который сервер подаёт по TLS.', c.kind !== 'ok' ? ': ' + c.text.replace(/\.$/, '') : '')}</p>
               )}
               {isMobile ? (
-                <ul className="ov-list">{list.map(r => <CertItem key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} />)}</ul>
+                <ul className="ov-list">{list.map(r => <CertItem key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={action(r)} />)}</ul>
               ) : (
                 <table className="ov-table">
                   <thead>
@@ -307,7 +315,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                       <th>{t('Состояние')}</th>
                     </tr>
                   </thead>
-                  <tbody>{list.map(r => <CertRow key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} />)}</tbody>
+                  <tbody>{list.map(r => <CertRow key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={action(r)} />)}</tbody>
                 </table>
               )}
             </>
@@ -330,7 +338,7 @@ function ServedBadges({ r, names }: { r: Row; names: string[] }) {
   );
 }
 
-function CertRow({ r, warning, names }: { r: Row; warning: number; names: string[] }) {
+function CertRow({ r, warning, names, action }: { r: Row; warning: number; names: string[]; action: ReactNode }) {
   const origin = ORIGIN[r.origin];
   const state = CERT_STATE[r.state];
   const extra = r.dns_names.filter(n => n.toLowerCase() !== r.subject.toLowerCase());
@@ -356,12 +364,15 @@ function CertRow({ r, warning, names }: { r: Row; warning: number; names: string
         {r.not_after ? fmtDateTime(r.not_after) : '—'}
         <span className={'sub days ' + daysTone(r.days_left, warning)}>{daysText(r.days_left)}</span>
       </td>
-      <td><Status kind={state.dot}>{state.label}</Status></td>
+      <td>
+        <Status kind={state.dot}>{state.label}</Status>
+        {action && <div className="ov-update">{action}</div>}
+      </td>
     </tr>
   );
 }
 
-function CertItem({ r, warning, names }: { r: Row; warning: number; names: string[] }) {
+function CertItem({ r, warning, names, action }: { r: Row; warning: number; names: string[]; action: ReactNode }) {
   const origin = ORIGIN[r.origin];
   const state = CERT_STATE[r.state];
 
@@ -378,6 +389,7 @@ function CertItem({ r, warning, names }: { r: Row; warning: number; names: strin
       <div className="muted small">{t('до {0} ·', r.not_after ? fmtDate(r.not_after.slice(0, 10)) : '—')} <span className={'days ' + daysTone(r.days_left, warning)}>{daysText(r.days_left)}</span>
         {r.issuer && <> · {r.issuer}</>}
       </div>
+      {action && <div className="ov-update">{action}</div>}
     </li>
   );
 }

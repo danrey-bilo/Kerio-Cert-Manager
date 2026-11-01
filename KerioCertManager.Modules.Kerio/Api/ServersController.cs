@@ -535,7 +535,7 @@ internal sealed class ServersController(
         return await ОдинAsync(await НайтиAsync(id, false, cancellationToken), cancellationToken);
     }
 
-    /// <summary>Установить текущий выпуск из Key Manager Plus сейчас — вне расписания и выключателей автоустановки.</summary>
+    /// <summary>Установить текущий выпуск из Key Manager Plus сейчас; имя, которое сервис ещё не ведёт, берётся под управление.</summary>
     [HttpPost("servers/{id:guid}/deploy")]
     [RequireRecentSecondFactor]
     public async Task<IActionResult> Deploy(
@@ -544,13 +544,15 @@ internal sealed class ServersController(
         CancellationToken cancellationToken)
     {
         var найден = await НайтиAsync(id, tracked: false, cancellationToken);
-        var выбран = string.IsNullOrWhiteSpace(body?.CommonName)
+        var просят = body?.CommonName?.Trim();
+        var выбран = string.IsNullOrEmpty(просят)
             ? null
-            : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, body.CommonName.Trim(), StringComparison.OrdinalIgnoreCase))
-              ?? throw Неверно("common_name", $"Сертификат {body.CommonName.Trim()} не выбран для этого сервера.");
-        var имя = выбран ?? найден.CommonName;
+            : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, просят, StringComparison.OrdinalIgnoreCase));
+        var имя = выбран ?? (string.IsNullOrEmpty(просят) ? найден.CommonName : просят);
+        var свежий = string.IsNullOrWhiteSpace(имя) ? null : await source.CurrentAsync(имя, cancellationToken);
+        var взять = выбран is null && !string.IsNullOrEmpty(просят) ? свежий : null;
 
-        if (!string.IsNullOrWhiteSpace(имя) && await source.CurrentAsync(имя, cancellationToken) is null)
+        if (!string.IsNullOrWhiteSpace(имя) && свежий is null)
         {
             throw new AppException(
                 KerioErrorCodes.Unavailable,
@@ -563,6 +565,23 @@ internal sealed class ServersController(
             id,
             сервер =>
             {
+                if (взять is not null)
+                {
+                    // Подаётся по умолчанию, а сертификат по умолчанию не выбран — обновляется он; иначе — сертификат имени.
+                    if (сервер.CommonName is null && string.Equals(сервер.ServedSubject, взять.CommonName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        сервер.CommonName = взять.CommonName;
+                    }
+                    else if (сервер.Extras.Count >= KerioServer.MaxExtras)
+                    {
+                        throw Неверно("common_name", $"Сертификатов по именам уже {KerioServer.MaxExtras} — больше нельзя.");
+                    }
+                    else
+                    {
+                        сервер.Extras = [.. сервер.Extras, new ExtraCertificate { CommonName = взять.CommonName, AddedAt = clock.GetUtcNow() }];
+                    }
+                }
+
                 if (string.IsNullOrWhiteSpace(сервер.CommonName) && сервер.Extras.Count == 0)
                 {
                     throw Неверно(CertificateNames.Field, "Сначала выберите сертификаты Key Manager Plus для этого сервера.");
@@ -580,7 +599,7 @@ internal sealed class ServersController(
 
                 сервер.DeployRequestedAt = clock.GetUtcNow();
                 сервер.DeployRequestedBy = current.Id;
-                сервер.DeployRequestedName = выбран;
+                сервер.DeployRequestedName = выбран ?? взять?.CommonName;
 
                 return new AuditEntry(
                     KerioActions.DeployRequested,
@@ -591,7 +610,8 @@ internal sealed class ServersController(
                         ["server"] = сервер.Name,
                         ["common_name"] = сервер.CommonName,
                         ["extras"] = string.Join(", ", сервер.Extras.Select(д => д.CommonName)),
-                        ["requested"] = выбран,
+                        ["requested"] = сервер.DeployRequestedName,
+                        ["linked"] = взять?.CommonName,
                     });
             },
             cancellationToken,

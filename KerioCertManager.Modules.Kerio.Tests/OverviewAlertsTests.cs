@@ -154,6 +154,29 @@ public sealed class OverviewAlertsTests
         список.Count(з => з.Served).ShouldBe(1);
     }
 
+    /// <summary>«Обновить» — у сертификата, для имени которого в KMP есть выпуск новее, ещё не лежащий в Kerio.</summary>
+    [Fact]
+    public void Обновить_когда_в_KMP_новее_и_его_нет_в_хранилище()
+    {
+        var сервер = Сервер(installed: "aa", served: "aa");
+        сервер.Store =
+        [
+            Лежит("server1", "aa", "SHA-AA", 60),
+            Лежит("server2", "dd", "SHA-DD", -117, subject: "legacy.example.com"),
+            Лежит("server", null, "SHA-K", 400, subject: "kerio", selfSigned: true),
+        ];
+        var свежий = new SourceCertificate("legacy.example.com", "ee", DateOnly.FromDateTime(Сейчас.AddDays(300).UtcDateTime), Сейчас, Сейчас);
+
+        var по = ServerView.Хранилище(сервер, [Выпуск("aa", 60), свежий], 21, Сейчас).ToDictionary(з => з.Id);
+
+        по["server2"].UpdateFrom.ShouldBe("legacy.example.com", "чужой истёкший, в KMP есть новее");
+        по["server1"].UpdateFrom.ShouldBeNull("текущий выпуск KMP уже лежит");
+        по["server"].UpdateFrom.ShouldBeNull();
+
+        сервер.Store = [.. сервер.Store, Лежит("server3", "ee", "SHA-EE", 300, subject: "legacy.example.com")];
+        ServerView.Хранилище(сервер, [Выпуск("aa", 60), свежий], 21, Сейчас).ShouldAllBe(з => з.UpdateFrom == null, "новый уже в хранилище");
+    }
+
     /// <summary>⚠ Тот же идентификатор, имя и дата — ещё не тот же сертификат: текст читается каждый раз.</summary>
     [Fact]
     public async Task Текст_сертификата_читается_каждый_раз()

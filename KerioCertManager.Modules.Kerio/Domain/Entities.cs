@@ -150,7 +150,7 @@ internal sealed class KerioServer
     /// <summary>Выпуск, уже прогнанный пробно: пробный прогон не повторяется каждый проход.</summary>
     public string? DryRunSerial { get; set; }
 
-    /// <summary>Администратор нажал «Установить сейчас».</summary>
+    /// <summary>Администратор нажал «Обновить».</summary>
     public DateTimeOffset? DeployRequestedAt { get; set; }
 
     public Guid? DeployRequestedBy { get; set; }
@@ -275,7 +275,7 @@ internal static class DeployTriggers
     /// <summary>Привязка только что задана, на сервере стоит другой сертификат.</summary>
     public const string Initial = "initial";
 
-    /// <summary>Администратор нажал «Установить сейчас».</summary>
+    /// <summary>Администратор нажал «Обновить».</summary>
     public const string Manual = "manual";
 
     /// <summary>Повтор после неудачи.</summary>
@@ -319,7 +319,7 @@ internal sealed class KerioDeployment
 
     public DateTimeOffset? FinishedAt { get; set; }
 
-    /// <summary>Кто нажал «Установить сейчас»; <c>null</c> — сам сервис.</summary>
+    /// <summary>Кто нажал «Обновить»; <c>null</c> — сам сервис.</summary>
     public Guid? ActorId { get; set; }
 
     public required string CommonName { get; set; }

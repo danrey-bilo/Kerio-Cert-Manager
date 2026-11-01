@@ -91,7 +91,7 @@ internal static class ServerView
             с.DeployRequestedName,
             с.CreatedAt,
             с.UpdatedAt,
-            bySerial is null ? [] : Хранилище(с, bySerial, warningDays, now),
+            bySerial is null ? [] : Хранилище(с, bySerial, kmp, warningDays, now),
             с.StoreCheckedAt,
             [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun))],
             с.ServedByName);
@@ -145,7 +145,7 @@ internal static class ServerView
     /// <summary>Хранилище Kerio для обзора: что подаётся, откуда каждый сертификат, сколько ему осталось.</summary>
     internal static IReadOnlyList<StoreCertOut> Хранилище(
         KerioServer с, IReadOnlyList<SourceCertificate> releases, int warningDays, DateTimeOffset now) =>
-        Хранилище(с, BySerial(releases), warningDays, now);
+        Хранилище(с, BySerial(releases), Current(releases), warningDays, now);
 
     /// <summary>Выпуски KMP по серийному номеру в одном виде — один раз на запрос, а не на каждый сервер.</summary>
     public static IReadOnlyDictionary<string, SourceCertificate> BySerial(IReadOnlyList<SourceCertificate> releases) =>
@@ -156,9 +156,14 @@ internal static class ServerView
             .ToDictionary(г => г.Key, г => г.First().Выпуск, StringComparer.Ordinal);
 
     internal static IReadOnlyList<StoreCertOut> Хранилище(
-        KerioServer с, IReadOnlyDictionary<string, SourceCertificate> поНомеру, int warningDays, DateTimeOffset now)
+        KerioServer с,
+        IReadOnlyDictionary<string, SourceCertificate> поНомеру,
+        IReadOnlyDictionary<string, SourceCertificate> текущие,
+        int warningDays,
+        DateTimeOffset now)
     {
         var ведомые = с.ManagedNames().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var лежат = с.Store.Where(з => з.Serial is not null).Select(з => Fingerprints.Serial(з.Serial!)).ToHashSet(StringComparer.Ordinal);
 
         return [.. с.Store
             .Select(з =>
@@ -182,6 +187,14 @@ internal static class ServerView
                     : конец - now <= TimeSpan.FromDays(warningDays) ? "expiring"
                     : "ok";
 
+                // Кнопка «Обновить»: в KMP на это имя есть выпуск новее, и его ещё нет в хранилище.
+                var обновить = откуда is not ("builtin" or "request")
+                    && текущие.TryGetValue(з.Subject, out var свежий)
+                    && !лежат.Contains(Fingerprints.Serial(свежий.SerialNumber))
+                    && (свежий.ExpiresOn is not { } доKmp || з.NotAfter is not { } доЗдесь || доKmp > DateOnly.FromDateTime(доЗдесь.UtcDateTime))
+                    ? свежий.CommonName
+                    : null;
+
                 return new StoreCertOut(
                     з.Id,
                     з.Type,
@@ -198,7 +211,8 @@ internal static class ServerView
                     з.Sha256 is not null && string.Equals(з.Sha256, с.ServedSha256, StringComparison.Ordinal),
                     откуда,
                     выпуск?.CommonName,
-                    срок);
+                    срок,
+                    обновить);
             })
             .OrderByDescending(з => з.Served)
             .ThenBy(з => з.Origin switch { "managed" => 0, "kmp" => 1, "foreign" => 2, "builtin" => 3, _ => 4 })

@@ -218,6 +218,7 @@ export interface StoreCert {
   origin: Origin;
   kmp_common_name: string | null;
   state: CertState;
+  update_from: string | null;
 }
 
 /** Отправленное оповещение. */

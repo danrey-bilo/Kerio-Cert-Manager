@@ -100,7 +100,8 @@ internal sealed record StoreCertOut(
     [property: JsonPropertyName("served")] bool Served,
     [property: JsonPropertyName("origin")] string Origin,
     [property: JsonPropertyName("kmp_common_name")] string? KmpCommonName,
-    [property: JsonPropertyName("state")] string State);
+    [property: JsonPropertyName("state")] string State,
+    [property: JsonPropertyName("update_from")] string? UpdateFrom);
 
 /// <summary>Отправленное оповещение.</summary>
 internal sealed record NotificationOut(
