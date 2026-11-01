@@ -56,6 +56,34 @@ public sealed class ServerTextsTests
         Тексты.Translate("Сервер недоступен. Проверьте адрес.", "en").ShouldBe("Server unreachable. Check the address.");
     }
 
+    /// <summary>Ошибка шага в журнале — «validate: …» — переводится и с меткой шага впереди.</summary>
+    [Fact]
+    public void Метка_шага_перед_текстом() =>
+        ServerTexts.FromAssembly().Translate(
+                "validate: Выпуск из Key Manager Plus (2026-08-14) старше установленного (2026-10-31): сам сервис откат не делает. "
+                + "Установите вручную, если это намеренно.", "en")
+            .ShouldBe("validate: The Key Manager Plus release (2026-08-14) is older than the installed one (2026-10-31): "
+                + "the service does not roll back on its own. Install it manually if this is intentional.");
+
+    [Fact]
+    public void Значок_перед_текстом() =>
+        ServerTexts.FromAssembly().Translate("🟠 Сертификат mail.example.com истекает через 12 дн.", "en")
+            .ShouldBe("🟠 Certificate mail.example.com expires in 12 d.");
+
+    /// <summary>Хвост с кодом, приклеенный к тексту ошибки, и шаблон с более длинным разделителем при равной точности.</summary>
+    [Fact]
+    public void Хвост_и_равные_шаблоны()
+    {
+        var тексты = ServerTexts.FromAssembly();
+
+        тексты.Translate("Kerio отказал (ConnectCertificate.importCertificate): Emulated failure. [код 1000]", "en")
+            .ShouldBe("Kerio refused (ConnectCertificate.importCertificate): Emulated failure. [code 1000]");
+        тексты.Translate("Сертификат mail.example.com от Demo CA, до 2027-01-30, SHA-256 AA:BB; промежуточных в цепочке: 1.", "en")
+            .ShouldBe("Certificate mail.example.com from Demo CA, until 2027-01-30, SHA-256 AA:BB; intermediate certificates in the chain: 1.");
+        тексты.Translate("Сертификат mail.example.com от Demo CA, до 2027-01-30, SHA-256 AA:BB.", "en")
+            .ShouldBe("Certificate mail.example.com from Demo CA, until 2027-01-30, SHA-256 AA:BB.");
+    }
+
     [Fact]
     public void Неизвестное_остаётся_как_есть()
     {

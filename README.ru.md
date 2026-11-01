@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="docs/images/logo.svg" width="88" height="88" alt="Kerio Cert Manager">
+  <img src="docs/images/cover.png" width="880" alt="Kerio Cert Manager">
 </p>
-
-<h1 align="center">Kerio Cert Manager</h1>
 
 <p align="center">
   <b>SSL-сертификаты из ManageEngine Key Manager Plus — на серверы Kerio Connect. Сами.</b><br>
@@ -334,12 +332,14 @@ mkdir -p backups && docker compose exec -T postgres pg_dump -U kcm kcm > backups
 настоящего не трогает:
 
 ```bash
-git clone --recurse-submodules https://github.com/danrey-bilo/Kerio-Cert-Manager.git
+git clone https://github.com/danrey-bilo/Kerio-Cert-Manager.git && cd Kerio-Cert-Manager
 ```
 
 ```bash
 docker compose -f docker-compose.demo.yml up -d --build
 ```
+
+Сервис берётся из Docker Hub, на месте собирается только эмулятор.
 
 | Что | Адрес | Вход |
 |---|---|---|

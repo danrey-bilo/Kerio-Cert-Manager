@@ -4,21 +4,38 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directories:
       - /KerioCertManager.Api
       - /KerioCertManager.Emulators
     schedule:
       interval: weekly
+    ignore:
+      # Сборка панели — только на LTS Node: переход на новую LTS делается вручную.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # ⚠ Новая основная версия PostgreSQL не открывает старые данные: только через pg_dump и восстановление.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /KerioCertManager.Web
     schedule:
       interval: weekly
+    groups:
+      web:
+        update-types: [minor, patch]
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
+    groups:
+      nuget:
+        update-types: [minor, patch]

@@ -110,7 +110,7 @@ internal sealed class KerioSession : IKerioSession
     /// <summary>Сколько ждать, пока Kerio закончит перезапуск HTTPS, прежде чем считать его недоступным.</summary>
     internal static TimeSpan ОжиданиеПерезапуска { get; set; } = TimeSpan.FromSeconds(60);
 
-    /// <summary>Первый вход ждёт меньше: перезапуск HTTPS длится секунды, а выключенный Kerio не должен минуту держать проверку соединения в панели.</summary>
+    /// <summary>Первый вход ждёт меньше: выключенный Kerio не держит проверку соединения в панели минуту.</summary>
     internal static TimeSpan ОжиданиеПервогоВхода { get; set; } = TimeSpan.FromSeconds(15);
 
     private static readonly TimeSpan ШагВхода = TimeSpan.FromSeconds(3);

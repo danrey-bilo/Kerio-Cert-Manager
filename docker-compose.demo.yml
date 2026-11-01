@@ -3,6 +3,8 @@
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 #
+# Сервис — образ из Docker Hub, собирается только эмулятор. Свой образ сервиса: KCM_DEMO_IMAGE=<образ>.
+#
 #   Панель                http://localhost:18001      admin@demo.local / Demo-Admin-Passw0rd!
 #   Панель стенда         http://localhost:18080      «продлить» сертификат в KMP, «залипнуть» Kerio
 #   Письма (Mailpit)      http://localhost:18025
@@ -36,10 +38,7 @@ x-hardening: &hardening
 
 services:
   api:
-    build:
-      context: .
-      dockerfile: KerioCertManager.Api/Dockerfile
-    image: kerio-cert-manager:demo
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.0}
     restart: unless-stopped
     stop_grace_period: 2m
     environment:
@@ -68,10 +67,7 @@ services:
         condition: service_started
 
   migrate:
-    image: kerio-cert-manager:demo
-    build:
-      context: .
-      dockerfile: KerioCertManager.Api/Dockerfile
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.0}
     command: ["migrate"]
     restart: "no"
     environment:

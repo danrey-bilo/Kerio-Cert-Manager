@@ -424,7 +424,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         письмо["recipients"]!.AsArray().ShouldHaveSingleItem()!.GetValue<string>().ShouldBe("noc@example.com");
     }
 
-    /// <summary>⚠ Сертификат своего имени: кладётся в хранилище, сертификат по умолчанию остаётся прежним (импорт в 10.0.6 делает новый активным.</summary>
+    /// <summary>⚠ Сертификат своего имени ложится в хранилище, а по умолчанию остаётся прежний, хотя импорт в 10.0.6 делает новый активным.</summary>
     [Fact]
     public async Task Сертификат_своего_имени_ставится_не_трогая_сертификат_по_умолчанию()
     {

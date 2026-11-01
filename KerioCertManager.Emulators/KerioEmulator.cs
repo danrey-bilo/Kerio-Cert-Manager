@@ -55,7 +55,7 @@ public sealed class KerioEmulator
     /// <summary>Залипание: порты служб не переключаются на новый активный.</summary>
     public bool Stuck { get; set; }
 
-    /// <summary>Через сколько после импорта или удаления все сессии API истекают — как перезапуск HTTPS у настоящего Kerio (там ~25 с); null — не истекают.</summary>
+    /// <summary>Когда после импорта или удаления истекают сессии API — как перезапуск HTTPS у Kerio (~25 с); null — никогда.</summary>
     public TimeSpan? SessionResetAfterChange { get; set; }
 
     /// <summary>Сколько раз сессии сбрасывались после изменения хранилища.</summary>

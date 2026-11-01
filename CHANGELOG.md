@@ -113,9 +113,6 @@
   как у сертификатов имён, — только свои: из KMP или поставленные сервисом; сервис помнит до 10 прежних своих
   выпуска (`previous_serials`, миграция `InstalledHistory`). Подсказки уборки в панели — точнее: переключатель
   действует на все сертификаты сервера, а своя версия имени, что действует дольше новой, убирается всегда.
-- **Демо-стенд снаружи**: профиль `tunnel` в `docker-compose.demo.yml` — Cloudflare Tunnel с токеном из файла
-  секрета, своя сеть туннеля, `X-Forwarded-*` — только от `cloudflared`, внешний адрес для писем —
-  `KCM_DEMO_PUBLIC_URL`.
-- **Демо-стенд** `docker-compose.demo.yml`: эмулятор KMP и двух Kerio Connect по HTTPS со своим УЦ и
-  списками отзыва, Mailpit.
+- **Демо-стенд** `docker-compose.demo.yml`: сервис из Docker Hub, эмулятор KMP и двух Kerio Connect по HTTPS
+  со своим УЦ и списками отзыва, Mailpit; только на этом компьютере.
 - Модули EAMS: core, crypto, hosting, identity, tokens, settings, mail, audit.

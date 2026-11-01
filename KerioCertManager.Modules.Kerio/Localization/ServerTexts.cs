@@ -137,6 +137,9 @@ public sealed class ServerTexts
         /// <summary>Шаблоны, что начинаются со вставки, — от точного к общему.</summary>
         private readonly Шаблон[] _сВставки;
 
+        /// <summary>Начала ключей с пробелом впереди — хвостов, что приклеиваются к другим фразам: от длинного к короткому.</summary>
+        private readonly string[] _хвосты;
+
         private readonly ConcurrentDictionary<string, string> _память = new(StringComparer.Ordinal);
 
         private long _символов;
@@ -144,6 +147,7 @@ public sealed class ServerTexts
         public Словарь(IReadOnlyDictionary<string, string> записи)
         {
             var шаблоны = new List<Шаблон>();
+            var хвосты = new HashSet<string>(StringComparer.Ordinal);
 
             // Края текста при сверке обрезаются — так и ключи: « Прежние версии ({0})…» найдётся внутри другой фразы.
             foreach (var (сКраями, перевод) in записи.Select(з => (з.Key, з.Value.Trim())))
@@ -155,9 +159,17 @@ public sealed class ServerTexts
                     continue;
                 }
 
+                var хвост = char.IsWhiteSpace(сКраями[0]);
+
                 if (!Вставка.IsMatch(исходный))
                 {
                     _точные.TryAdd(исходный, перевод);
+
+                    if (хвост)
+                    {
+                        хвосты.Add(исходный);
+                    }
+
                     continue;
                 }
 
@@ -169,10 +181,17 @@ public sealed class ServerTexts
                 if (постоянного >= 2)
                 {
                     шаблоны.Add(new Шаблон(куски, номера, перевод, постоянного));
+
+                    if (хвост && куски[0].Trim().Length >= 2)
+                    {
+                        хвосты.Add(куски[0]);
+                    }
                 }
             }
 
-            var поТочности = шаблоны.OrderByDescending(ш => ш.Постоянного).ToList();
+            // При равной точности главнее шаблон с более длинными кусками: «{3}; {4}» раньше «{3}.{4}».
+            var поТочности = шаблоны.OrderByDescending(ш => ш.Постоянного).ThenByDescending(ш => ш.Куски.Sum(к => к.Length)).ToList();
+            _хвосты = [.. хвосты.OrderByDescending(х => х.Length)];
             _сВставки = [.. поТочности.Where(ш => ш.Куски[0].Length == 0)];
             _поНачалу = поТочности.Where(ш => ш.Куски[0].Length > 0)
                 .GroupBy(ш => ш.Куски[0][0])
@@ -206,7 +225,7 @@ public sealed class ServerTexts
             }
             else
             {
-                итог = ПоШаблону(text, глубина) ?? ПоПредложениям(text, глубина) ?? text;
+                итог = ПоШаблону(text, глубина) ?? ПослеМетки(text, глубина) ?? ПоХвосту(text, глубина) ?? ПоПредложениям(text, глубина) ?? text;
             }
 
             if (Interlocked.Add(ref _символов, text.Length + итог.Length) > ПотолокПамяти)
@@ -266,6 +285,52 @@ public sealed class ServerTexts
             return Вставка.Replace(
                 лучший.Перевод,
                 m => значения.TryGetValue(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), out var значение) ? значение : m.Value);
+        }
+
+        /// <summary>«validate: текст», «🟠 текст» — метка без кириллицы впереди остаётся, текст за ней переводится.</summary>
+        private string? ПослеМетки(string text, int глубина)
+        {
+            var где = text.IndexOf(": ", StringComparison.Ordinal);
+            var длина = где + 2;
+
+            if (где <= 0 || Кириллица(text[..где]))
+            {
+                где = text.IndexOf(' ');
+                длина = где + 1;
+
+                if (где is <= 0 or > 4 || char.IsLetterOrDigit(text[0]))
+                {
+                    return null;
+                }
+            }
+
+            var хвост = text[длина..];
+            var перевод = Перевести(хвост, глубина + 1);
+
+            return перевод == хвост ? null : text[..длина] + перевод;
+        }
+
+        /// <summary>«текст [код 1000]» — известный хвост переводится отдельно от начала.</summary>
+        private string? ПоХвосту(string text, int глубина)
+        {
+            foreach (var якорь in _хвосты)
+            {
+                var где = text.LastIndexOf(якорь, StringComparison.Ordinal);
+
+                if (где <= 0 || !char.IsWhiteSpace(text[где - 1]))
+                {
+                    continue;
+                }
+
+                var конец = Перевести(text[где..], глубина + 1);
+
+                if (конец != text[где..])
+                {
+                    return Перевести(text[..где], глубина + 1) + конец;
+                }
+            }
+
+            return null;
         }
 
         private string? ПоПредложениям(string text, int глубина)

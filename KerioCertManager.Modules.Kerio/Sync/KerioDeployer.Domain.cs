@@ -363,7 +363,7 @@ internal sealed partial class KerioDeployer
         }
     }
 
-    /// <summary>Серийные своих выпусков имени — из Key Manager Plus или поставленных сервисом; чужие (купленный, положенный вручную) сервис не трогает.</summary>
+    /// <summary>Серийные своих выпусков имени — из Key Manager Plus или поставленных сервисом; чужие не трогаются.</summary>
     private async Task<HashSet<string>> СвоиНомераAsync(
         string commonName, IEnumerable<string?> поставленные, CancellationToken cancellationToken) =>
         (await source.ListAsync(cancellationToken))
