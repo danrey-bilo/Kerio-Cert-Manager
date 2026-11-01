@@ -43,13 +43,14 @@ internal static class ServerView
         int warningDays,
         DateTimeOffset now,
         bool dryRun = false,
-        IReadOnlyDictionary<string, SourceCertificate>? bySerial = null)
+        IReadOnlyDictionary<string, SourceCertificate>? bySerial = null,
+        bool paused = false)
     {
         ArgumentNullException.ThrowIfNull(с);
         ArgumentNullException.ThrowIfNull(kmp);
 
         var выпуск = с.CommonName is { } имя && kmp.TryGetValue(имя, out var найден) ? найден : null;
-        var (статус, текст) = Status(с, выпуск, warningDays, now, dryRun);
+        var (статус, текст) = Status(с, выпуск, warningDays, now, dryRun, paused);
 
         int? дней = с.ServedNotAfter is { } до ? (int)Math.Floor((до - now).TotalDays) : null;
 
@@ -93,13 +94,14 @@ internal static class ServerView
             с.UpdatedAt,
             bySerial is null ? [] : Хранилище(с, bySerial, kmp, warningDays, now),
             с.StoreCheckedAt,
-            [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun))],
+            [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun, paused))],
             с.ServedByName);
     }
 
     /// <summary>Сертификат своего имени: что в KMP, лежит ли в хранилище, подаётся ли по имени.</summary>
     internal static ExtraOut Доп(
-        KerioServer с, ExtraCertificate д, IReadOnlyDictionary<string, SourceCertificate> kmp, int warningDays, DateTimeOffset now, bool dryRun)
+        KerioServer с, ExtraCertificate д, IReadOnlyDictionary<string, SourceCertificate> kmp, int warningDays, DateTimeOffset now, bool dryRun,
+        bool paused = false)
     {
         var выпуск = kmp.TryGetValue(д.CommonName, out var найден) ? найден : null;
         var лежит = выпуск is null
@@ -125,7 +127,9 @@ internal static class ServerView
             : д.LastError is { } отказ && Fingerprints.SameSerial(д.FailedSerial, выпуск.SerialNumber) ? (ServerStatuses.DeployFailed, отказ)
             : (ServerStatuses.UpdatePending, dryRun
                 ? "Новый выпуск — пробный режим: проверен, но в Kerio не ставится."
-                : с.AutoDeploy ? "Новый выпуск — установка в ближайшем проходе." : "Новый выпуск — ждёт ручной установки.");
+                // ⚠ Как в ExtraPlanner: первая установка не ждёт выключателя сервера, общая пауза держит всё.
+                : !paused && (с.AutoDeploy || (д.InstalledSerial is null && !с.Store.Any(з => ExtraPlanner.Того(з, д.CommonName))))
+                    ? "Новый выпуск — установка в ближайшем проходе." : "Новый выпуск — ждёт ручной установки.");
 
         return new ExtraOut(
             д.CommonName,
@@ -187,8 +191,9 @@ internal static class ServerView
                     : конец - now <= TimeSpan.FromDays(warningDays) ? "expiring"
                     : "ok";
 
-                // Кнопка «Обновить»: в KMP на это имя есть выпуск новее, и его ещё нет в хранилище.
+                // ⚠ «Обновить» — только у выбранного для сервера имени: в KMP есть выпуск новее, и его ещё нет в хранилище.
                 var обновить = откуда is not ("builtin" or "request")
+                    && ведомые.Contains(з.Subject)
                     && текущие.TryGetValue(з.Subject, out var свежий)
                     && !лежат.Contains(Fingerprints.Serial(свежий.SerialNumber))
                     && (свежий.ExpiresOn is not { } доKmp || з.NotAfter is not { } доЗдесь || доKmp > DateOnly.FromDateTime(доЗдесь.UtcDateTime))
@@ -221,7 +226,7 @@ internal static class ServerView
 
     /// <summary>Самое важное о сервере одним словом и фразой.</summary>
     internal static (string Code, string Text) Status(
-        KerioServer с, SourceCertificate? выпуск, int warningDays, DateTimeOffset now, bool dryRun = false)
+        KerioServer с, SourceCertificate? выпуск, int warningDays, DateTimeOffset now, bool dryRun = false, bool paused = false)
     {
         if (!с.Enabled)
         {
@@ -254,7 +259,7 @@ internal static class ServerView
         {
             return (ServerStatuses.UpdatePending, dryRun
                 ? "В Key Manager Plus новый выпуск — пробный режим: проверен, но в Kerio не ставится."
-                : с.AutoDeploy
+                : !paused && (с.AutoDeploy || с.InstalledSerial is null)
                     ? "В Key Manager Plus новый выпуск — установка в ближайшем проходе."
                     : "В Key Manager Plus новый выпуск — ждёт ручной установки.");
         }

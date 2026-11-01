@@ -173,7 +173,8 @@ internal static class DeployPlanner
 
         var триггер = первая ? DeployTriggers.Initial : истекает ? DeployTriggers.Expiring : DeployTriggers.Renewal;
 
-        if (!globalAutoDeploy || !server.AutoDeploy)
+        // ⚠ Выключатель сервера — о продлениях: первая установка выбранного сертификата идёт и при нём; общая пауза держит всё.
+        if (!globalAutoDeploy || (!server.AutoDeploy && !первая))
         {
             предупреждения.Add(new ServerAlert(
                 AlertKinds.RenewalPending,

@@ -154,9 +154,9 @@ public sealed class OverviewAlertsTests
         список.Count(з => з.Served).ShouldBe(1);
     }
 
-    /// <summary>«Обновить» — у сертификата, для имени которого в KMP есть выпуск новее, ещё не лежащий в Kerio.</summary>
+    /// <summary>⚠ «Обновить» — только у выбранного для сервера имени, когда в KMP есть выпуск новее, ещё не лежащий в Kerio.</summary>
     [Fact]
-    public void Обновить_когда_в_KMP_новее_и_его_нет_в_хранилище()
+    public void Обновить_только_выбранное_и_когда_в_KMP_новее()
     {
         var сервер = Сервер(installed: "aa", served: "aa");
         сервер.Store =
@@ -166,15 +166,18 @@ public sealed class OverviewAlertsTests
             Лежит("server", null, "SHA-K", 400, subject: "kerio", selfSigned: true),
         ];
         var свежий = new SourceCertificate("legacy.example.com", "ee", DateOnly.FromDateTime(Сейчас.AddDays(300).UtcDateTime), Сейчас, Сейчас);
+        IReadOnlyList<SourceCertificate> kmp = [Выпуск("aa", 60), свежий];
 
-        var по = ServerView.Хранилище(сервер, [Выпуск("aa", 60), свежий], 21, Сейчас).ToDictionary(з => з.Id);
+        ServerView.Хранилище(сервер, kmp, 21, Сейчас).ShouldAllBe(з => з.UpdateFrom == null, "legacy не выбран для сервера — не трогаем");
 
-        по["server2"].UpdateFrom.ShouldBe("legacy.example.com", "чужой истёкший, в KMP есть новее");
+        сервер.Extras = [new ExtraCertificate { CommonName = "legacy.example.com", AddedAt = Сейчас }];
+        var по = ServerView.Хранилище(сервер, kmp, 21, Сейчас).ToDictionary(з => з.Id);
+        по["server2"].UpdateFrom.ShouldBe("legacy.example.com", "выбран, в KMP новее");
         по["server1"].UpdateFrom.ShouldBeNull("текущий выпуск KMP уже лежит");
         по["server"].UpdateFrom.ShouldBeNull();
 
         сервер.Store = [.. сервер.Store, Лежит("server3", "ee", "SHA-EE", 300, subject: "legacy.example.com")];
-        ServerView.Хранилище(сервер, [Выпуск("aa", 60), свежий], 21, Сейчас).ShouldAllBe(з => з.UpdateFrom == null, "новый уже в хранилище");
+        ServerView.Хранилище(сервер, kmp, 21, Сейчас).ShouldAllBe(з => з.UpdateFrom == null, "новый уже в хранилище");
     }
 
     /// <summary>⚠ Тот же идентификатор, имя и дата — ещё не тот же сертификат: текст читается каждый раз.</summary>

@@ -67,6 +67,17 @@ public sealed class PlannerTests
         план.Alerts.ShouldContain(а => а.Kind == AlertKinds.RenewalPending);
     }
 
+    /// <summary>⚠ Выключатель сервера — о продлениях: первая установка выбранного сертификата идёт и при нём.</summary>
+    [Fact]
+    public void Первая_установка_при_выключенном_выключателе_сервера()
+    {
+        var с = Сервер();
+        с.AutoDeploy = false;
+
+        Решить(с, Подан("aa", 5), Выпуск("bb", 90)).Trigger.ShouldBe(DeployTriggers.Initial);
+        DeployPlanner.Plan(с, Подан("aa", 5), Выпуск("bb", 90), false, 21, Сейчас).Action.ShouldBe(PlanAction.None, "общая пауза");
+    }
+
     /// <summary>⚠ Сервис ставил bb, а сервер подаёт aa: правка вручную — не спорим, пишем.</summary>
     [Fact]
     public void Ручная_правка_на_сервере_не_перебивается()

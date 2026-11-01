@@ -571,10 +571,12 @@
  "На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.": "The current Key Manager Plus release will be installed on “{0}” as the default certificate. It is verified on every port; if it fails, the previous one is restored.",
  "В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.": "The current Key Manager Plus release will be added to the store of “{0}” — Kerio will serve it for this name. The default certificate does not change.",
  "Поставить текущий выпуск из Key Manager Plus сейчас": "Install the current Key Manager Plus release now",
- "Продлённые сертификаты ждут кнопки «Обновить» — она у каждого такого сертификата в списке сервера.": "Renewed certificates are waiting for the “Update” button — it is next to each such certificate in the server’s list.",
  "Обновить {0}?": "Update {0}?",
- "Дальше сервис ведёт это имя сам: следующие продления встанут сами или будут ждать этой кнопки.": "From now on the service manages this name: the next renewals are installed by themselves or wait for this button.",
  "Обновить": "Update",
- "Обновление поставлено в очередь — ход виден в «Журнале»": "Update queued — progress is shown in the Log",
- "Выключено — только письмо и кнопка «Обновить» у сертификата во вкладке «Обзор».": "Off — only an e-mail and the “Update” button next to the certificate on the Overview tab."
+ "Добавить {0} на сервер?": "Add {0} to the server?",
+ "Установка поставлена в очередь — ход виден в «Журнале»": "Installation is queued — progress is shown in the Log",
+ "выбран для этого сервера": "selected for this server",
+ "Нет на сервере": "Not on the server",
+ "Выключено — продления ждут письма и кнопки «Обновить» во вкладке «Обзор»; только что добавленный сертификат ставится сразу.": "Off — renewals wait for an e-mail and the “Update” button on the Overview tab; a newly added certificate is installed right away.",
+ "Продлённые и только что выбранные сертификаты ждут кнопок «Обновить» и «Добавить» — они в списке сервера, у каждого такого сертификата.": "Renewed and newly selected certificates wait for the “Update” and “Add” buttons — they are in the server’s list, next to each such certificate."
 }

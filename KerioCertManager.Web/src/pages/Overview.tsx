@@ -86,7 +86,7 @@ export function OverviewPage() {
       )}
       {!data.auto_deploy && (
         <Banner tone="warn" icon="pause" title={t('Автоматическая установка на паузе')}
-          text={t('Продлённые сертификаты ждут кнопки «Обновить» — она у каждого такого сертификата в списке сервера.')}
+          text={t('Продлённые и только что выбранные сертификаты ждут кнопок «Обновить» и «Добавить» — они в списке сервера, у каждого такого сертификата.')}
           href="#/settings/sync" action={t('Включить')} />
       )}
 
@@ -211,37 +211,36 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
     && (!s.deploy_requested_name || s.deploy_requested_name.toLowerCase() === name.toLowerCase());
   const blocked = !s.enabled ? t('Сервер отключён') : !s.password_set ? t('Не задан пароль учётной записи Kerio') : null;
 
-  const update = async (r: Row, name: string) => {
-    const same = (n: string | null | undefined) => n?.toLowerCase() === name.toLowerCase();
-    const isDefault = same(s.common_name) || (!s.common_name && r.served);
+  /** «Обновить» лежащий или «Добавить» недостающий — только сертификат, выбранный для этого сервера. */
+  const install = async (name: string, adding: boolean) => {
+    const isDefault = s.common_name?.toLowerCase() === name.toLowerCase();
     if (!await confirm(
-      t('Обновить {0}?', name),
-      <>
-        {isDefault
-          ? t('На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.', s.name)
-          : t('В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.', s.name)}
-        {!managed.some(m => same(m.name)) && <> {t('Дальше сервис ведёт это имя сам: следующие продления встанут сами или будут ждать этой кнопки.')}</>}
-      </>,
-      t('Обновить'),
+      adding ? t('Добавить {0} на сервер?', name) : t('Обновить {0}?', name),
+      isDefault
+        ? t('На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.', s.name)
+        : t('В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.', s.name),
+      adding ? t('Добавить') : t('Обновить'),
     )) return;
     setUpdating(true);
-    await run(() => api.post(`/api/kerio/servers/${s.id}/deploy`, { common_name: name }), t('Обновление поставлено в очередь — ход виден в «Журнале»'));
+    await run(() => api.post(`/api/kerio/servers/${s.id}/deploy`, { common_name: name }), t('Установка поставлена в очередь — ход виден в «Журнале»'));
     setUpdating(false);
     onChanged();
   };
 
-  /** «Обновить» под состоянием сертификата: в KMP есть выпуск новее, чем лежит в Kerio. */
-  const action = (r: Row): ReactNode => {
-    const name = r.update_from;
+  const button = (name: string | null, adding: boolean): ReactNode => {
     if (!name) return null;
     if (queued(name)) return <span className="badge accent">{t('В очереди')}</span>;
     return (
       <button type="button" className="primary" disabled={updating || blocked !== null}
-        title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void update(r, name)}>
-        <Icon name="refresh" />{t('Обновить')}
+        title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void install(name, adding)}>
+        <Icon name={adding ? 'plus' : 'refresh'} />{adding ? t('Добавить') : t('Обновить')}
       </button>
     );
   };
+
+  // Выбранные для сервера сертификаты, которых нет в хранилище Kerio, — строкой с «Добавить».
+  const present = new Set(s.store.map(z => z.subject.toLowerCase()));
+  const missing = s.store_checked_at && !filtered ? managed.filter(m => m.source && !present.has(m.name.toLowerCase())) : [];
 
   const byName = new Map<string, string[]>();
   for (const m of managed) {
@@ -296,7 +295,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
 
           {!s.enabled ? (
             <p className="ov-note muted">{t('Сервер отключён — не проверяется. Данные на момент последней проверки.')}</p>
-          ) : list.length === 0 ? (
+          ) : list.length === 0 && missing.length === 0 ? (
             <p className="ov-note muted">{filtered ? t('Таких сертификатов на этом сервере нет.') : c.kind === 'ok' ? t('Хранилище пусто.') : t('Данных ещё нет: {0}', c.text)}</p>
           ) : (
             <>
@@ -304,7 +303,10 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                 <p className="ov-note warn-text">{t('Хранилище Kerio не прочитано{0}. Ниже — только сертификат, который сервер подаёт по TLS.', c.kind !== 'ok' ? ': ' + c.text.replace(/\.$/, '') : '')}</p>
               )}
               {isMobile ? (
-                <ul className="ov-list">{list.map(r => <CertItem key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={action(r)} />)}</ul>
+                <ul className="ov-list">
+                  {missing.map(m => <MissingItem key={'missing-' + m.name} m={m} action={button(m.name, true)} />)}
+                  {list.map(r => <CertItem key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={button(r.update_from, false)} />)}
+                </ul>
               ) : (
                 <table className="ov-table">
                   <thead>
@@ -315,7 +317,10 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                       <th>{t('Состояние')}</th>
                     </tr>
                   </thead>
-                  <tbody>{list.map(r => <CertRow key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={action(r)} />)}</tbody>
+                  <tbody>
+                    {missing.map(m => <MissingRow key={'missing-' + m.name} m={m} action={button(m.name, true)} />)}
+                    {list.map(r => <CertRow key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={button(r.update_from, false)} />)}
+                  </tbody>
                 </table>
               )}
             </>
@@ -323,6 +328,40 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
         </div>
       )}
     </section>
+  );
+}
+
+/** Выбранный для сервера сертификат, которого нет в хранилище Kerio. */
+function MissingRow({ m, action }: { m: Managed; action: ReactNode }) {
+  return (
+    <tr className="missing">
+      <td>
+        <span className="cert-name">
+          <b className="mono">{m.name}</b>
+          {m.isDefault && <span className="badge accent">{t('по умолчанию')}</span>}
+        </span>
+        <span className="sub">{t('выбран для этого сервера')}</span>
+      </td>
+      <td><span className="badge info">{t('Есть в KMP')}</span></td>
+      <td className="nowrap">{m.source?.expires_on ? t('выпуск до {0}', fmtDate(m.source.expires_on)) : '—'}</td>
+      <td>
+        <Status kind="warn">{t('Нет на сервере')}</Status>
+        {action && <div className="ov-update">{action}</div>}
+      </td>
+    </tr>
+  );
+}
+
+function MissingItem({ m, action }: { m: Managed; action: ReactNode }) {
+  return (
+    <li className="ov-cert missing">
+      <div className="ov-cert-top">
+        <b className="mono">{m.name}</b>
+        <Status kind="warn">{t('Нет на сервере')}</Status>
+      </div>
+      <div className="muted small">{t('выбран для этого сервера')}{m.source?.expires_on && <> · {t('выпуск до {0}', fmtDate(m.source.expires_on))}</>}</div>
+      {action && <div className="ov-update">{action}</div>}
+    </li>
   );
 }
 

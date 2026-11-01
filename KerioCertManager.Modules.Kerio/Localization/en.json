@@ -463,6 +463,7 @@
  "Сертификат {0} истёк": "Certificate {0} has expired",
  "Сертификат {0} на «{1}» истекает через {2} дн.": "Certificate {0} on “{1}” expires in {2} d.",
  "Сертификат {0} на «{1}» истёк": "Certificate {0} on “{1}” has expired",
+ "Сертификат {0} не выбран для этого сервера.": "Certificate {0} is not selected for this server.",
  "Сертификат {0} от {1}, до {2}, SHA-256 {3}.{4}": "Certificate {0} from {1}, until {2}, SHA-256 {3}.{4}",
  "Сертификат {0} от {1}, до {2}, SHA-256 {3}; {4}{5}": "Certificate {0} from {1}, until {2}, SHA-256 {3}; {4}{5}",
  "Сертификат {0} установлен": "Certificate {0} installed",

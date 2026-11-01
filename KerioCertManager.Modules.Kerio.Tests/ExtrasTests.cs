@@ -137,17 +137,42 @@ public sealed class ExtrasTests
             .Action.ShouldBe(PlanAction.None);
 
     [Fact]
-    public void Автоустановка_выключена_ждёт_кнопки()
+    public void Автоустановка_выключена_продление_ждёт_кнопки()
+    {
+        var сервер = Сервер(Лежит("aa", 30));
+        сервер.AutoDeploy = false;
+
+        var план = Решить(сервер, Доп("aa", "SHA-aa"), Выпуск("bb", 90));
+
+        план.Action.ShouldBe(PlanAction.None);
+        план.Alerts.ShouldContain(а => а.Kind == AlertKinds.RenewalPending && а.Scope == Имя);
+
+        ExtraPlanner.Plan(сервер, Доп("aa", "SHA-aa"), Выпуск("bb", 90), true, true, 21, Сейчас, manual: true).Trigger.ShouldBe(DeployTriggers.Manual);
+    }
+
+    /// <summary>⚠ Выключатель сервера — о продлениях: только что добавленный сертификат ставится сразу; общая пауза держит и его.</summary>
+    [Fact]
+    public void Автоустановка_выключена_новый_сертификат_ставится()
     {
         var сервер = Сервер();
         сервер.AutoDeploy = false;
 
         var план = Решить(сервер, Доп(), Выпуск("bb", 90));
 
-        план.Action.ShouldBe(PlanAction.None);
-        план.Alerts.ShouldContain(а => а.Kind == AlertKinds.RenewalPending && а.Scope == Имя);
+        план.Action.ShouldBe(PlanAction.Deploy);
+        план.Trigger.ShouldBe(DeployTriggers.Initial);
 
-        ExtraPlanner.Plan(сервер, Доп(), Выпуск("bb", 90), true, true, 21, Сейчас, manual: true).Trigger.ShouldBe(DeployTriggers.Manual);
+        ExtraPlanner.Plan(сервер, Доп(), Выпуск("bb", 90), true, globalAutoDeploy: false, 21, Сейчас, manual: false)
+            .Action.ShouldBe(PlanAction.None, "общая пауза");
+
+        var kmp = new Dictionary<string, SourceCertificate> { [Имя] = Выпуск("bb", 90) };
+        ServerView.Доп(сервер, Доп(), kmp, 21, Сейчас, dryRun: false).StatusText.ShouldContain("в ближайшем проходе");
+        ServerView.Доп(сервер, Доп(), kmp, 21, Сейчас, dryRun: false, paused: true).StatusText.ShouldContain("ждёт ручной установки");
+
+        var продление = Сервер(Лежит("aa", 30));
+        продление.AutoDeploy = false;
+        ServerView.Доп(продление, Доп("aa", "SHA-aa"), kmp, 21, Сейчас, dryRun: false).StatusText
+            .ShouldContain("ждёт ручной установки", customMessage: "продление ждёт кнопки");
     }
 
     [Fact]

@@ -535,7 +535,7 @@ internal sealed class ServersController(
         return await ОдинAsync(await НайтиAsync(id, false, cancellationToken), cancellationToken);
     }
 
-    /// <summary>Установить текущий выпуск из Key Manager Plus сейчас; имя, которое сервис ещё не ведёт, берётся под управление.</summary>
+    /// <summary>Установить текущий выпуск из Key Manager Plus сейчас — только сертификаты, выбранные для этого сервера.</summary>
     [HttpPost("servers/{id:guid}/deploy")]
     [RequireRecentSecondFactor]
     public async Task<IActionResult> Deploy(
@@ -544,15 +544,13 @@ internal sealed class ServersController(
         CancellationToken cancellationToken)
     {
         var найден = await НайтиAsync(id, tracked: false, cancellationToken);
-        var просят = body?.CommonName?.Trim();
-        var выбран = string.IsNullOrEmpty(просят)
+        var выбран = string.IsNullOrWhiteSpace(body?.CommonName)
             ? null
-            : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, просят, StringComparison.OrdinalIgnoreCase));
-        var имя = выбран ?? (string.IsNullOrEmpty(просят) ? найден.CommonName : просят);
-        var свежий = string.IsNullOrWhiteSpace(имя) ? null : await source.CurrentAsync(имя, cancellationToken);
-        var взять = выбран is null && !string.IsNullOrEmpty(просят) ? свежий : null;
+            : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, body.CommonName.Trim(), StringComparison.OrdinalIgnoreCase))
+              ?? throw Неверно("common_name", $"Сертификат {body.CommonName.Trim()} не выбран для этого сервера.");
+        var имя = выбран ?? найден.CommonName;
 
-        if (!string.IsNullOrWhiteSpace(имя) && свежий is null)
+        if (!string.IsNullOrWhiteSpace(имя) && await source.CurrentAsync(имя, cancellationToken) is null)
         {
             throw new AppException(
                 KerioErrorCodes.Unavailable,
@@ -565,23 +563,6 @@ internal sealed class ServersController(
             id,
             сервер =>
             {
-                if (взять is not null)
-                {
-                    // Подаётся по умолчанию, а сертификат по умолчанию не выбран — обновляется он; иначе — сертификат имени.
-                    if (сервер.CommonName is null && string.Equals(сервер.ServedSubject, взять.CommonName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        сервер.CommonName = взять.CommonName;
-                    }
-                    else if (сервер.Extras.Count >= KerioServer.MaxExtras)
-                    {
-                        throw Неверно("common_name", $"Сертификатов по именам уже {KerioServer.MaxExtras} — больше нельзя.");
-                    }
-                    else
-                    {
-                        сервер.Extras = [.. сервер.Extras, new ExtraCertificate { CommonName = взять.CommonName, AddedAt = clock.GetUtcNow() }];
-                    }
-                }
-
                 if (string.IsNullOrWhiteSpace(сервер.CommonName) && сервер.Extras.Count == 0)
                 {
                     throw Неверно(CertificateNames.Field, "Сначала выберите сертификаты Key Manager Plus для этого сервера.");
@@ -599,7 +580,7 @@ internal sealed class ServersController(
 
                 сервер.DeployRequestedAt = clock.GetUtcNow();
                 сервер.DeployRequestedBy = current.Id;
-                сервер.DeployRequestedName = выбран ?? взять?.CommonName;
+                сервер.DeployRequestedName = выбран;
 
                 return new AuditEntry(
                     KerioActions.DeployRequested,
@@ -611,7 +592,6 @@ internal sealed class ServersController(
                         ["common_name"] = сервер.CommonName,
                         ["extras"] = string.Join(", ", сервер.Extras.Select(д => д.CommonName)),
                         ["requested"] = сервер.DeployRequestedName,
-                        ["linked"] = взять?.CommonName,
                     });
             },
             cancellationToken,
@@ -729,11 +709,12 @@ internal sealed class ServersController(
         var поНомеру = хранилище ? ServerView.BySerial(выпуски) : null;
         var дней = await settings.GetAsync(KerioSettings.WarningDays, cancellationToken);
         var пробно = await settings.GetAsync(KerioSettings.DryRun, cancellationToken);
+        var пауза = !await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken);
         var сейчас = clock.GetUtcNow();
 
         var серверы = await db.Set<KerioServer>().AsNoTracking().OrderBy(с => с.Name).ToListAsync(cancellationToken);
 
-        return [.. серверы.Select(с => ServerView.Of(с, текущие, дней, сейчас, пробно, поНомеру))];
+        return [.. серверы.Select(с => ServerView.Of(с, текущие, дней, сейчас, пробно, поНомеру, пауза))];
     }
 
     private async Task<ServerOut> ОдинAsync(KerioServer сервер, CancellationToken cancellationToken)
@@ -746,7 +727,8 @@ internal sealed class ServersController(
             await settings.GetAsync(KerioSettings.WarningDays, cancellationToken),
             clock.GetUtcNow(),
             await settings.GetAsync(KerioSettings.DryRun, cancellationToken),
-            ServerView.BySerial(выпуски));
+            ServerView.BySerial(выпуски),
+            !await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken));
     }
 
     private async Task<KerioServer> НайтиAsync(Guid id, bool tracked, CancellationToken cancellationToken)

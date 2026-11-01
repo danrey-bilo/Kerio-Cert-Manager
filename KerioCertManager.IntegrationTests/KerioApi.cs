@@ -174,7 +174,7 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
 
         host.User.StepUpAt = DateTimeOffset.UtcNow;
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = "other.demo.local" }, Ct)).StatusCode
-            .ShouldBe(HttpStatusCode.Conflict, "такого имени нет в Key Manager Plus — обновлять нечем");
+            .ShouldBe(HttpStatusCode.BadRequest, "чужое имя — не сертификат этого сервера");
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта.ToUpperInvariant() }, Ct)).StatusCode
             .ShouldBe(HttpStatusCode.Accepted);
         (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"]!.GetValue<string>().ShouldBe(Почта);
@@ -184,16 +184,18 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
 
         kerio.ServedCertificate.SerialNumber.ShouldBe(третий.Certificate.SerialNumber);
 
-        // «Обновить» у имени, которое сервис ещё не вёл: берётся под управление и ставится в хранилище.
-        var чужое = Стенд.Kmp.Issue("extra.demo.local", TimeSpan.FromDays(90));
+        // ⚠ Имя есть в KMP, но для сервера не выбрано — не трогаем; выбранное ставится сразу, хоть автоустановка продлений и выключена.
+        var новое = Стенд.Kmp.Issue("extra.demo.local", TimeSpan.FromDays(90));
         await ЦиклAsync();
         host.User.StepUpAt = DateTimeOffset.UtcNow;
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = "extra.demo.local" }, Ct)).StatusCode
-            .ShouldBe(HttpStatusCode.Accepted);
-        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["extras"]!.AsArray()
-            .Select(д => д!["common_name"]!.GetValue<string>()).ShouldContain("extra.demo.local");
+            .ShouldBe(HttpStatusCode.BadRequest, "не выбран для этого сервера");
+        kerio.Store.ShouldNotContain(з => з.Certificate.SerialNumber == новое.Certificate.SerialNumber);
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = new[] { "extra.demo.local" } }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
         await ЦиклAsync();
-        kerio.Store.ShouldContain(з => з.Certificate.SerialNumber == чужое.Certificate.SerialNumber, "новое имя поставлено в хранилище");
+        kerio.Store.ShouldContain(з => з.Certificate.SerialNumber == новое.Certificate.SerialNumber, "первая установка выбранного — без кнопки");
 
         await using (var scope = host.Services.CreateAsyncScope())
         {
@@ -209,8 +211,9 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         сводка["servers"]!.AsArray().Count.ShouldBe(1);
 
         var журналУстановок = await клиент.GetFromJsonAsync<JsonArray>("/api/kerio/deployments?limit=5&steps=true", Ct);
-        журналУстановок![0]!["trigger"]!.GetValue<string>().ShouldBe("manual");
-        журналУстановок[0]!["steps"]!.AsArray().Count.ShouldBeGreaterThan(5);
+        журналУстановок![0]!["trigger"]!.GetValue<string>().ShouldBe("initial", "последним встал только что выбранный extra.demo.local");
+        журналУстановок[1]!["trigger"]!.GetValue<string>().ShouldBe("manual");
+        журналУстановок[1]!["steps"]!.AsArray().Count.ShouldBeGreaterThan(5);
 
         var журнал = await клиент.GetFromJsonAsync<JsonNode>($"/api/audit?action=kerio.certificate_deployed&resource_id={id}", Ct);
         журнал!.ToJsonString().ShouldContain(Почта);

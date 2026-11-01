@@ -197,7 +197,8 @@ The pencil in the server row opens two tabs.
 certificate from the list (the certificate stays in Kerio), **Add** adds a name from KMP. Badges show whether the
 certificate is installed, served, or awaiting installation.
 
-- **Install renewed certificates automatically** — turned off: only an e-mail and the **Update** button.
+- **Install renewed certificates automatically** — turned off: renewals wait for an e-mail and the **Update** button.
+  A certificate just added to the list is installed right away anyway; only the global pause holds it.
 - **Clean up old certificate versions** — after a successful installation the service removes *its own* previous
   versions of the same name (from KMP or installed by it) and keeps one previous version for a manual rollback.
   Certificates bought or placed by hand are never removed. An own version of a name certificate that is valid longer
@@ -226,10 +227,11 @@ certificates. Expanded, it lists:
   state (*OK*, *Awaiting installation*, *Not installed* with the reason).
 - **The store** — every certificate in Kerio: *served* (the default) and *served for name*, its origin
   (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**, **Kerio built-in**), valid until and
-  state. When Key Manager Plus has a newer release for a certificate's name that is not in Kerio yet — an expired one,
-  one awaiting installation, or one added by hand — its status has the **Update** button: it installs exactly this
-  certificate with a fresh second-factor code; a name the service did not manage before is taken under management.
-  While the update is queued, the line shows *Queued*.
+  state. Buttons appear only for certificates selected for this server. When Key Manager Plus has a newer release
+  that is not in Kerio yet, the status has the **Update** button. A selected certificate that is missing from the
+  store is listed first as *Not on the server* with the **Add** button. Both install exactly this certificate with a
+  fresh second-factor code; while it is queued, the line shows *Queued*. Certificates not selected for the server —
+  foreign or added by hand — have no button: select the name in the server settings first.
 
 ## 9. Servers
 
@@ -318,7 +320,8 @@ other than the current one).
 
 - **A certificate is renewed in KMP.** Within one sync pass the service notices it and installs it on every server
   that uses it (or e-mails *Awaiting manual installation* if automatic installation is off), then e-mails a report.
-- **Update.** Overview → expand the server → **Update** under the certificate's status, with a fresh code. Also
+- **Update / Add.** Overview → expand the server → **Update** or **Add** under the certificate's status, with a
+  fresh code — for a certificate selected for this server. Also
   installs an older release
   if you decide so (the service never does this by itself).
 - **Rollback.** If the new certificate does not appear on every verified port, the previous one is restored and

@@ -81,7 +81,10 @@ internal static class ExtraPlanner
             return new ExtraPlan(PlanAction.Deploy, DeployTriggers.Manual, source, null, предупреждения, true);
         }
 
-        if (!globalAutoDeploy || !server.AutoDeploy)
+        var первая = extra.InstalledSerial is null && версии.Count == 0;
+
+        // ⚠ Выключатель сервера — о продлениях: только что добавленный сертификат ставится и при нём; общая пауза держит всё.
+        if (!globalAutoDeploy || (!server.AutoDeploy && !первая))
         {
             предупреждения.Add(new ServerAlert(
                 AlertKinds.RenewalPending,
@@ -103,7 +106,7 @@ internal static class ExtraPlanner
 
         var триггер = extra.Failures > 0 && Fingerprints.SameSerial(extra.FailedSerial, source.SerialNumber)
             ? DeployTriggers.Retry
-            : extra.InstalledSerial is null && версии.Count == 0
+            : первая
                 ? DeployTriggers.Initial
                 : DeployTriggers.Renewal;
 
