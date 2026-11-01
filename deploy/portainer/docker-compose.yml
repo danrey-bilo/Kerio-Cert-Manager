@@ -1,5 +1,6 @@
 # Стек для Portainer (Stacks → Add stack → Upload) или `docker compose up -d`. Подробно — README.md рядом.
 # Значения — в .env (Portainer: «Load variables from .env file»). Обновление — новый KCM_IMAGE и «Update the stack».
+# Подсеть 172.31.252.0/28 и порт 18001 — не те, что у eams-ssl-sender: стеки уживаются на одном сервере.
 
 x-logging: &logging
   driver: json-file
@@ -49,7 +50,7 @@ services:
 
   # Разово: схема, роль kcm_app и, если заданы, первый администратор или сброс доступа.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.1}
     command: ["migrate"]
     restart: "no"
     environment:
@@ -68,7 +69,6 @@ services:
       - kcm_master_kek
       - kcm_app_password
     <<: *hardening
-    read_only: true
     tmpfs:
       - /tmp
     networks:
@@ -79,7 +79,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.1}
     restart: unless-stopped
     stop_grace_period: 2m
     environment:
@@ -89,18 +89,17 @@ services:
       KCM_POSTGRES_PASSWORD_FILE: /run/secrets/kcm_app_password
       KCM_MASTER_KEK_FILE: /run/secrets/kcm_master_kek
       # ⚠ X-Forwarded-* — только от адреса cloudflared (не всей подсети) и своего прокси, если задан.
-      ForwardedHeaders__KnownProxies: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+      ForwardedHeaders__KnownProxies: ${KCM_TUNNEL_PROXY_IP:-172.31.252.2}
       ForwardedHeaders__KnownNetworks: ${KCM_TRUSTED_PROXY_NETWORKS:-}
     secrets:
       - kcm_master_kek
       - kcm_app_password
     <<: *hardening
-    read_only: true
     tmpfs:
       - /tmp
     # Наружу — только через туннель.
     ports:
-      - "127.0.0.1:${KCM_HTTP_PORT:-8001}:8001"
+      - "127.0.0.1:${KCM_HTTP_PORT:-18001}:8001"
     networks:
       default:
       db:
@@ -130,10 +129,9 @@ services:
     secrets:
       - cloudflare_tunnel_token
     <<: *hardening
-    read_only: true
     networks:
       edge:
-        ipv4_address: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+        ipv4_address: ${KCM_TUNNEL_PROXY_IP:-172.31.252.2}
     mem_limit: 256m
     pids_limit: 128
     logging: *logging
@@ -142,6 +140,7 @@ services:
         condition: service_healthy
 
 # ⚠ Секреты — из переменных стека в файлы /run/secrets: в `docker inspect` и окружении контейнеров их нет.
+# ⚠ Поэтому без read_only у migrate, api и cloudflared: такие секреты compose пишет в контейнер, а в read_only — не может.
 secrets:
   kcm_master_kek:
     environment: KCM_MASTER_KEK
@@ -164,5 +163,5 @@ networks:
   edge:
     ipam:
       config:
-        - subnet: ${KCM_TUNNEL_SUBNET:-172.31.250.0/28}
-          ip_range: ${KCM_TUNNEL_RANGE:-172.31.250.8/29}
+        - subnet: ${KCM_TUNNEL_SUBNET:-172.31.252.0/28}
+          ip_range: ${KCM_TUNNEL_RANGE:-172.31.252.8/29}

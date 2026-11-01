@@ -19,7 +19,7 @@ x-logging: &logging
 services:
   api:
     # Образ из архива релиза (`docker load`); версия — KCM_IMAGE в .env.
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.1}
     build:
       context: .
       dockerfile: KerioCertManager.Api/Dockerfile
@@ -34,7 +34,7 @@ services:
       KCM_POSTGRES_PASSWORD_FILE: /run/secrets/kcm_app_password
       KCM_MASTER_KEK_FILE: /run/secrets/kcm_master_kek
       # ⚠ X-Forwarded-* — только от адреса cloudflared (не всей подсети) и своего прокси, если задан.
-      ForwardedHeaders__KnownProxies: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+      ForwardedHeaders__KnownProxies: ${KCM_TUNNEL_PROXY_IP:-172.31.252.2}
       ForwardedHeaders__KnownNetworks: ${KCM_TRUSTED_PROXY_NETWORKS:-}
     security_opt:
       - no-new-privileges:true
@@ -73,7 +73,7 @@ services:
 
   # Схема и роль kcm_app, разово: docker compose run --rm migrate. Единственная знает пароль владельца.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.0}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.1}
     profiles: ["tools"]
     command: ["migrate"]
     environment:
@@ -116,7 +116,7 @@ services:
       - cloudflare_tunnel_token
     networks:
       edge:
-        ipv4_address: ${KCM_TUNNEL_PROXY_IP:-172.31.250.2}
+        ipv4_address: ${KCM_TUNNEL_PROXY_IP:-172.31.252.2}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -186,5 +186,5 @@ networks:
   edge:
     ipam:
       config:
-        - subnet: ${KCM_TUNNEL_SUBNET:-172.31.250.0/28}
-          ip_range: ${KCM_TUNNEL_RANGE:-172.31.250.8/29}
+        - subnet: ${KCM_TUNNEL_SUBNET:-172.31.252.0/28}
+          ip_range: ${KCM_TUNNEL_RANGE:-172.31.252.8/29}
