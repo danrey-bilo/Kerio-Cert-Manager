@@ -7,13 +7,20 @@ using Modules.Core.Errors;
 
 namespace KerioCertManager.Modules.Kerio.Sync;
 
-/// <summary>Фоновый цикл: раз в <c>keymanager.poll_minutes</c> или по сигналу «синхронизировать сейчас».</summary>
-internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeup, ILogger<SyncWorker> log) : BackgroundService
+/// <summary>
+/// Фоновый цикл: раз в <c>keymanager.poll_minutes</c> или по сигналу «синхронизировать сейчас». Пока очередь установки
+/// не пуста, следующий проход — после паузы Kerio, без нового опроса Key Manager Plus.
+/// </summary>
+internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeup, TimeProvider clock, ILogger<SyncWorker> log)
+    : BackgroundService
 {
     /// <summary>Пауза после старта: дать хосту подняться и базе — ответить.</summary>
     private static readonly TimeSpan Разгон = TimeSpan.FromSeconds(15);
 
     private static readonly TimeSpan ПоУмолчанию = TimeSpan.FromMinutes(15);
+
+    /// <summary>Между проходами очереди: Kerio успевает перезапустить HTTPS после прошлой установки.</summary>
+    private static TimeSpan ПаузаОчереди => SyncCycle.ПаузаПослеИзменения + TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,9 +33,12 @@ internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeu
             return;
         }
 
+        DateTimeOffset? опрошено = null;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var интервал = ПоУмолчанию;
+            var очередь = false;
 
             try
             {
@@ -37,7 +47,14 @@ internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeu
                 var настройки = scope.ServiceProvider.GetRequiredService<ISettingsReader>();
                 интервал = TimeSpan.FromMinutes(await настройки.GetAsync(CertificateSourceSettings.IntervalMinutes, stoppingToken));
 
-                await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(stoppingToken);
+                var опросить = опрошено is not { } когда || clock.GetUtcNow() - когда >= интервал;
+
+                очередь = await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(опросить, stoppingToken);
+
+                if (опросить)
+                {
+                    опрошено = clock.GetUtcNow();
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -50,7 +67,11 @@ internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeu
 
             try
             {
-                await wakeup.WaitAsync(интервал, stoppingToken);
+                // ⚠ Сигнал (кнопка, сохранение настроек) — всегда полный проход с опросом KMP.
+                if (await wakeup.WaitAsync(очередь && ПаузаОчереди < интервал ? ПаузаОчереди : интервал, stoppingToken))
+                {
+                    опрошено = null;
+                }
             }
             catch (OperationCanceledException)
             {

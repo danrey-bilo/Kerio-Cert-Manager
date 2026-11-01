@@ -184,8 +184,10 @@ export interface KerioServer {
   last_deploy_at: string | null;
   last_deploy_error: string | null;
   next_attempt_at: string | null;
-  deploy_requested_at: string | null;
-  deploy_requested_name: string | null;
+  /** Очередь установки по порядку: первым встанет первый. */
+  install_queue: string[];
+  /** Что ставится на этом сервере прямо сейчас. */
+  installing: string | null;
   created_at: string;
   updated_at: string;
   store: StoreCert[];

@@ -15,6 +15,10 @@ internal sealed class KerioTables : IEntityConfigurationProvider
 
     internal const string NotificationsTable = "kerio_notifications";
 
+    internal const string RequestsTable = "kerio_install_requests";
+
+    internal const string SlotTable = "kerio_install_slot";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public void Configure(ModelBuilder model)
@@ -96,9 +100,7 @@ internal sealed class KerioTables : IEntityConfigurationProvider
             строка.Property(с => с.DeployFailures).HasColumnName("deploy_failures").IsRequired();
             строка.Property(с => с.NextAttemptAt).HasColumnName("next_attempt_at").HasColumnType("timestamptz");
             строка.Property(с => с.DryRunSerial).HasColumnName("dry_run_serial").HasColumnType("text");
-            строка.Property(с => с.DeployRequestedAt).HasColumnName("deploy_requested_at").HasColumnType("timestamptz");
-            строка.Property(с => с.DeployRequestedBy).HasColumnName("deploy_requested_by");
-            строка.Property(с => с.DeployRequestedName).HasColumnName("deploy_requested_name").HasColumnType("text");
+            строка.Ignore(с => с.Requested);
             строка.Property(с => с.LeaseUntil).HasColumnName("lease_until").HasColumnType("timestamptz");
             строка.Property(с => с.LeaseOwner).HasColumnName("lease_owner");
 
@@ -134,6 +136,16 @@ internal sealed class KerioTables : IEntityConfigurationProvider
                         список => список.Count,
                         // ⚠ Глубокая копия: элементы меняются на месте, и снимок трекера не должен меняться вместе с ними.
                         список => JsonSerializer.Deserialize<List<ExtraCertificate>>(JsonSerializer.Serialize(список, Json), Json)!));
+
+            строка.Property(с => с.InstallQueue)
+                .HasColumnName("install_queue").HasColumnType("jsonb").IsRequired().HasDefaultValueSql("'[]'::jsonb")
+                .HasConversion(
+                    список => JsonSerializer.Serialize(список, Json),
+                    json => JsonSerializer.Deserialize<List<string>>(json, Json) ?? new List<string>(),
+                    new ValueComparer<List<string>>(
+                        (а, б) => а != null && б != null && а.SequenceEqual(б),
+                        список => список.Count,
+                        список => список.ToList()));
 
             строка.Property(с => с.ServedByName)
                 .HasColumnName("served_by_name").HasColumnType("jsonb").IsRequired().HasDefaultValueSql("'{}'::jsonb")
@@ -191,6 +203,34 @@ internal sealed class KerioTables : IEntityConfigurationProvider
                         (а, б) => а != null && б != null && а.SequenceEqual(б),
                         шаги => шаги.Count,
                         шаги => шаги.ToList()));
+        });
+
+        model.Entity<InstallRequest>(строка =>
+        {
+            строка.ToTable(RequestsTable);
+
+            строка.HasKey(з => з.Id).HasName($"pk_{RequestsTable}");
+            строка.HasIndex(з => new { з.ServerId, з.CommonName }).IsUnique().HasDatabaseName($"ux_{RequestsTable}_server_name");
+            строка.HasOne<KerioServer>().WithMany().HasForeignKey(з => з.ServerId).OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName($"fk_{RequestsTable}_server");
+
+            строка.Property(з => з.Id).HasColumnName("id").ValueGeneratedNever();
+            строка.Property(з => з.ServerId).HasColumnName("server_id").IsRequired();
+            строка.Property(з => з.CommonName).HasColumnName("common_name").HasColumnType("text").IsRequired();
+            строка.Property(з => з.RequestedAt).HasColumnName("requested_at").HasColumnType("timestamptz").IsRequired()
+                .HasDefaultValueSql("now()");
+            строка.Property(з => з.RequestedBy).HasColumnName("requested_by");
+        });
+
+        model.Entity<InstallSlot>(строка =>
+        {
+            строка.ToTable(SlotTable, таблица => таблица.HasCheckConstraint($"ck_{SlotTable}_single", $"id = {InstallSlot.Only}"));
+
+            строка.HasKey(с => с.Id).HasName($"pk_{SlotTable}");
+
+            строка.Property(с => с.Id).HasColumnName("id").ValueGeneratedNever();
+            строка.Property(с => с.LeaseUntil).HasColumnName("lease_until").HasColumnType("timestamptz");
+            строка.Property(с => с.LeaseOwner).HasColumnName("lease_owner");
         });
 
         model.Entity<KerioNotification>(строка =>

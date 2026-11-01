@@ -38,7 +38,7 @@ x-hardening: &hardening
 
 services:
   api:
-    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     restart: unless-stopped
     stop_grace_period: 2m
     environment:
@@ -67,7 +67,7 @@ services:
         condition: service_started
 
   migrate:
-    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     command: ["migrate"]
     restart: "no"
     environment:

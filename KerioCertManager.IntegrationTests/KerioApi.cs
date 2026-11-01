@@ -177,10 +177,10 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             .ShouldBe(HttpStatusCode.BadRequest, "чужое имя — не сертификат этого сервера");
         (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта.ToUpperInvariant() }, Ct)).StatusCode
             .ShouldBe(HttpStatusCode.Accepted);
-        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"]!.GetValue<string>().ShouldBe(Почта);
+        Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct))).ShouldBe([Почта]);
         await ЦиклAsync();
 
-        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"].ShouldBeNull("запрос погашен проходом");
+        Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct))).ShouldBeEmpty("запрос погашен проходом");
 
         kerio.ServedCertificate.SerialNumber.ShouldBe(третий.Certificate.SerialNumber);
 
@@ -496,6 +496,90 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             .ShouldHaveSingleItem()!["origin"]!.GetValue<string>().ShouldBe("managed");
     }
 
+    /// <summary>⚠ Очередь установки: за проход — один сертификат; нажатые встают первыми и копятся по порядку нажатия.</summary>
+    [Fact]
+    public async Task Очередь_ставит_по_одному_сертификату_за_проход()
+    {
+        var kerio = Стенд.Kerio[0];
+        string[] имена = ["a.demo.local", "b.demo.local", "c.demo.local", "d.demo.local"];
+        var выпуски = имена.ToDictionary(и => и, и => Стенд.Kmp.Issue(и, TimeSpan.FromDays(90)));
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+
+        int Стоят() => выпуски.Values.Count(в => kerio.Store.Any(з => з.Certificate.SerialNumber == в.Certificate.SerialNumber));
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = имена }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ЦиклAsync()).ShouldBeTrue("в очереди ещё есть что ставить");
+
+        Стоят().ShouldBe(1, "за проход — один сертификат");
+        var очередь = Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)));
+        очередь.Count.ShouldBe(3);
+
+        host.User.StepUpAt = DateTimeOffset.UtcNow;
+
+        foreach (var имя in new[] { очередь[2], очередь[1], очередь[2] })
+        {
+            (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = имя.ToUpperInvariant() }, Ct)).StatusCode
+                .ShouldBe(HttpStatusCode.Accepted);
+        }
+
+        Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))
+            .ShouldBe([очередь[2], очередь[1], очередь[0]], "нажатые первыми, повторное нажатие — не второй запрос");
+
+        await ЦиклAsync();
+        kerio.Store.ShouldContain(з => з.Certificate.SerialNumber == выпуски[очередь[2]].Certificate.SerialNumber, "первым — нажатый первым");
+        Стоят().ShouldBe(2);
+
+        await ЦиклAsync();
+        Стоят().ShouldBe(3);
+
+        (await ЦиклAsync()).ShouldBeFalse("очередь пуста");
+        Стоят().ShouldBe(4);
+        Очередь(await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct))).ShouldBeEmpty();
+
+        var установки = await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct);
+        установки!.Count(у => у!["trigger"]!.GetValue<string>() == "manual").ShouldBe(2);
+    }
+
+    /// <summary>⚠ Слот установки один на весь сервис: второй не возьмёт его, пока первый не отпустит; чужой не отпустит.</summary>
+    [Fact]
+    public async Task Слот_установки_один_на_весь_сервис()
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+        var слот = scope.ServiceProvider.GetRequiredService<InstallGate>();
+        var первый = Guid.CreateVersion7();
+        var второй = Guid.CreateVersion7();
+
+        (await слот.TryAcquireAsync(первый, Ct)).ShouldBeTrue();
+        (await слот.TryAcquireAsync(второй, Ct)).ShouldBeFalse();
+
+        await слот.ReleaseAsync(второй);
+        (await слот.TryAcquireAsync(второй, Ct)).ShouldBeFalse("чужой владелец слот не отпускает");
+
+        await слот.ReleaseAsync(первый);
+        (await слот.TryAcquireAsync(второй, Ct)).ShouldBeTrue();
+        await слот.ReleaseAsync(второй);
+    }
+
+    /// <summary>Сертификатов своих имён у сервера сколько угодно: лимита нет.</summary>
+    [Fact]
+    public async Task Сертификатов_имён_без_лимита()
+    {
+        var имена = Enumerable.Range(1, 30).Select(н => $"host{н}.demo.local").ToArray();
+
+        foreach (var имя in имена)
+        {
+            Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90));
+        }
+
+        var id = await ПодключитьAsync(Стенд.Kerio[0]);
+        var клиент = host.CreateClient();
+
+        var ответ = await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = имена }, Ct);
+        ответ.StatusCode.ShouldBe(HttpStatusCode.OK, await ответ.Content.ReadAsStringAsync(Ct));
+        (await Json(ответ))["extras"]!.AsArray().Count.ShouldBe(30);
+    }
+
     /// <summary>⚠ Проход держит сервер и сохраняет его в конце: правка посреди него молча пропала бы — отказ «занят».</summary>
     [Fact]
     public async Task Правка_во_время_прохода_отвергается()
@@ -602,11 +686,15 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             .ExecuteUpdateAsync(set => set.SetProperty(с => с.LeaseUntil, до).SetProperty(с => с.LeaseOwner, владелец), Ct);
     }
 
-    private async Task ЦиклAsync()
+    /// <summary>Проход; <c>true</c> — в очереди установки ещё есть что ставить.</summary>
+    private async Task<bool> ЦиклAsync()
     {
         await using var scope = host.Services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(Ct);
+        return await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(Ct);
     }
+
+    private static List<string> Очередь(JsonObject сервер) =>
+        [.. сервер["install_queue"]!.AsArray().Select(и => и!.GetValue<string>())];
 
     private static async Task<JsonObject> Json(HttpResponseMessage ответ) =>
         (await ответ.Content.ReadFromJsonAsync<JsonObject>(Ct)) ?? throw new InvalidOperationException("пустой ответ");

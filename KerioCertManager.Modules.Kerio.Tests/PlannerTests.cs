@@ -93,13 +93,12 @@ public sealed class PlannerTests
     {
         var с = Сервер(installed: "bb");
         с.AutoDeploy = false;
-        с.DeployRequestedAt = Сейчас;
+        с.Requested[с.CommonName!] = null;
 
         var план = DeployPlanner.Plan(с, Подан("aa", 300), Выпуск("bb", 90), false, 21, Сейчас);
 
         план.Action.ShouldBe(PlanAction.Deploy);
         план.Trigger.ShouldBe(DeployTriggers.Manual);
-        план.ClearManualRequest.ShouldBeTrue();
     }
 
     /// <summary>⚠ Порт администрирования уже подаёт текущий выпуск, но порты служб могли остаться на прежнем.</summary>
@@ -107,13 +106,12 @@ public sealed class PlannerTests
     public void Ручной_запрос_когда_уже_стоит_ставит_заново_с_проверкой_портов()
     {
         var с = Сервер(installed: "bb");
-        с.DeployRequestedAt = Сейчас;
+        с.Requested[с.CommonName!] = null;
 
         var план = Решить(с, Подан("bb", 90), Выпуск("bb", 90));
 
         план.Action.ShouldBe(PlanAction.Deploy);
         план.Trigger.ShouldBe(DeployTriggers.Manual);
-        план.ClearManualRequest.ShouldBeTrue();
     }
 
     /// <summary>⚠ Кнопка у сертификата своего имени не переставляет сертификат по умолчанию: Kerio перезапустил бы HTTPS зря.</summary>
@@ -121,16 +119,14 @@ public sealed class PlannerTests
     public void Ручной_запрос_на_другое_имя_не_трогает_сертификат_по_умолчанию()
     {
         var с = Сервер(installed: "bb");
-        с.DeployRequestedAt = Сейчас;
-        с.DeployRequestedName = "webmail.example.com";
+        с.Requested["webmail.example.com"] = null;
 
         var план = Решить(с, Подан("bb", 90), Выпуск("bb", 90));
 
         план.Action.ShouldBe(PlanAction.None);
-        план.ClearManualRequest.ShouldBeFalse();
         с.ManualFor("WEBMAIL.example.com").ShouldBeTrue("имя сравнивается без учёта регистра");
 
-        с.DeployRequestedName = "MAIL.example.com";
+        с.Requested["MAIL.example.com"] = null;
         Решить(с, Подан("bb", 90), Выпуск("bb", 90)).Trigger.ShouldBe(DeployTriggers.Manual);
     }
 

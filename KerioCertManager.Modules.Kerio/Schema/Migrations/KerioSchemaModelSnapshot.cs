@@ -22,6 +22,64 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("KerioCertManager.Modules.Kerio.Domain.InstallRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CommonName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("common_name");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("requested_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("RequestedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by");
+
+                    b.Property<Guid>("ServerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("server_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_kerio_install_requests");
+
+                    b.HasIndex("ServerId", "CommonName")
+                        .IsUnique()
+                        .HasDatabaseName("ux_kerio_install_requests_server_name");
+
+                    b.ToTable("kerio_install_requests", (string)null);
+                });
+
+            modelBuilder.Entity("KerioCertManager.Modules.Kerio.Domain.InstallSlot", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("LeaseOwner")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("lease_until");
+
+                    b.HasKey("Id")
+                        .HasName("pk_kerio_install_slot");
+
+                    b.ToTable("kerio_install_slot", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_kerio_install_slot_single", "id = 1");
+                        });
+                });
+
             modelBuilder.Entity("KerioCertManager.Modules.Kerio.Domain.KerioDeployment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -236,18 +294,6 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("deploy_failures");
 
-                    b.Property<DateTimeOffset?>("DeployRequestedAt")
-                        .HasColumnType("timestamptz")
-                        .HasColumnName("deploy_requested_at");
-
-                    b.Property<Guid?>("DeployRequestedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("deploy_requested_by");
-
-                    b.Property<string>("DeployRequestedName")
-                        .HasColumnType("text")
-                        .HasColumnName("deploy_requested_name");
-
                     b.Property<string>("DryRunSerial")
                         .HasColumnType("text")
                         .HasColumnName("dry_run_serial");
@@ -266,6 +312,13 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                     b.Property<string>("FailedSerial")
                         .HasColumnType("text")
                         .HasColumnName("failed_serial");
+
+                    b.Property<string>("InstallQueue")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("install_queue")
+                        .HasDefaultValueSql("'[]'::jsonb");
 
                     b.Property<DateTimeOffset?>("InstalledAt")
                         .HasColumnType("timestamptz")
@@ -452,6 +505,16 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
 
                             t.HasCheckConstraint("ck_kerio_servers_tls_mode", "tls_mode IN ('ca', 'pin')");
                         });
+                });
+
+            modelBuilder.Entity("KerioCertManager.Modules.Kerio.Domain.InstallRequest", b =>
+                {
+                    b.HasOne("KerioCertManager.Modules.Kerio.Domain.KerioServer", null)
+                        .WithMany()
+                        .HasForeignKey("ServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_kerio_install_requests_server");
                 });
 #pragma warning restore 612, 618
         }

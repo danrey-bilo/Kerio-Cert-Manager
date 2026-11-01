@@ -70,6 +70,7 @@ public static class KerioModule
         services.AddScoped<KerioDeployer>();
         services.AddScoped<KerioNotifier>();
         services.AddScoped<ServerLeases>();
+        services.AddScoped<InstallGate>();
         services.AddScoped<SyncCycle>();
 
         services.TryAddSingleton<SourceWakeup>();

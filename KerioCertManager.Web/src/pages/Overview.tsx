@@ -62,6 +62,11 @@ export function OverviewPage() {
     .map(s => ({ server: s, rows: (rowsOf.get(s.id) ?? []).filter(r => matches(r, filter)) }))
     .filter(x => filter === 'all' || x.rows.length > 0);
 
+  // Очередь установки по всем серверам: что ставится сейчас и сколько ждёт.
+  const waiting = servers.reduce((n, s) => n + s.install_queue.length, 0);
+  const installingOn = servers.find(s => s.installing);
+  const queue = installingOn || waiting > 0 ? { server: installingOn, waiting } : null;
+
   const isOpen = (id: string) => open[id] ?? filter !== 'all';
   const allOpen = visible.length > 0 && visible.every(x => isOpen(x.server.id));
   const toggleAll = () => setOpen(Object.fromEntries(visible.map(x => [x.server.id, !allOpen])));
@@ -83,6 +88,13 @@ export function OverviewPage() {
         <Banner tone="info" icon="info" title={t('Пробный режим')}
           text={t('Сервис проверяет всё, но сертификаты в Kerio не меняет. Выключите, когда убедитесь в настройке.')}
           href="#/settings/sync" action={t('Настройки')} />
+      )}
+      {queue && (
+        <Banner tone="info" icon="refresh" title={t('Сертификаты ставятся по одному')}
+          text={queue.server
+            ? t('Сейчас — {0} на «{1}», в очереди ещё {2}. Ход каждой установки — в «Журнале».', queue.server.installing ?? '', queue.server.name, queue.waiting)
+            : t('В очереди {0}. Ход каждой установки — в «Журнале».', queue.waiting)}
+          href="#/journal" action={t('Журнал')} />
       )}
       {!data.auto_deploy && (
         <Banner tone="warn" icon="pause" title={t('Автоматическая установка на паузе')}
@@ -207,8 +219,9 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
   const worst = managed.reduce<Managed | null>((w, m) => (!w || STATUS[m.status].rank < STATUS[w.status].rank ? m : w), null);
   const bodyId = 'ov-body-' + s.id;
 
-  const queued = (name: string) => Boolean(s.deploy_requested_at)
-    && (!s.deploy_requested_name || s.deploy_requested_name.toLowerCase() === name.toLowerCase());
+  const same = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase();
+  const position = (name: string) => s.install_queue.findIndex(n => same(n, name)) + 1;
+  const inQueue = s.install_queue.length + (s.installing ? 1 : 0);
   const blocked = !s.enabled ? t('Сервер отключён') : !s.password_set ? t('Не задан пароль учётной записи Kerio') : null;
 
   /** «Обновить» лежащий или «Добавить» недостающий — только сертификат, выбранный для этого сервера. */
@@ -229,7 +242,8 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
 
   const button = (name: string | null, adding: boolean): ReactNode => {
     if (!name) return null;
-    if (queued(name)) return <span className="badge accent">{t('В очереди')}</span>;
+    if (same(s.installing, name)) return <span className="badge accent ov-installing"><span className="spinner inline-spinner" />{t('Ставится')}</span>;
+    if (position(name) > 0) return <span className="badge accent">{t('В очереди · №{0}', position(name))}</span>;
     return (
       <button type="button" className="primary" disabled={updating || blocked !== null}
         title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void install(name, adding)}>
@@ -240,7 +254,23 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
 
   // Выбранные для сервера сертификаты, которых нет в хранилище Kerio, — строкой с «Добавить».
   const present = new Set(s.store.map(z => z.subject.toLowerCase()));
-  const missing = s.store_checked_at && !filtered ? managed.filter(m => m.source && !present.has(m.name.toLowerCase())) : [];
+  const missing = s.store_checked_at && !filtered ? managed.filter(m => !present.has(m.name.toLowerCase())) : [];
+
+  // Почему выбранный сертификат не в порядке — под состоянием первой строки его имени.
+  const notes = new Map<string, string>();
+  for (const m of managed) {
+    if (STATUS[m.status].rank > 4 || m.status === 'unchecked') continue;
+    const row = list.find(r => same(r.subject, m.name));
+    notes.set(row ? row.id : 'missing-' + m.name, m.text);
+  }
+
+  // Одним списком: сертификат по умолчанию сверху, затем недостающие выбранные, затем остальное хранилище.
+  const ordered: { key: string; row?: Row; m?: Managed }[] = [
+    ...missing.filter(m => m.isDefault).map(m => ({ key: 'missing-' + m.name, m })),
+    ...list.filter(r => r.served).map(r => ({ key: r.id, row: r })),
+    ...missing.filter(m => !m.isDefault).map(m => ({ key: 'missing-' + m.name, m })),
+    ...list.filter(r => !r.served).map(r => ({ key: r.id, row: r })),
+  ];
 
   const byName = new Map<string, string[]>();
   for (const m of managed) {
@@ -263,6 +293,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
           {expiring > 0 && <span className="badge warn">{expiring} {expiring === 1 ? t('истекает') : t('истекают')}</span>}
           {foreign > 0 && <span className="badge warn">{t('{0} не из KMP', foreign)}</span>}
           {worst && <span className={'badge ' + STATUS[worst.status].tone} title={worst.text}>KMP: {STATUS[worst.status].label}</span>}
+          {inQueue > 0 && <span className="badge accent" title={t('Сертификаты ставятся по одному, по порядку')}>{t('очередь установки: {0}', inQueue)}</span>}
         </span>
         <span className="ov-meta">
           <Status kind={c.dot}>{c.label}</Status>
@@ -274,24 +305,9 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
 
       {open && (
         <div id={bodyId} className="ov-body">
-          <div className="ov-managed">
-            <div className="ov-managed-head"><Icon name="key" /><b>{t('Из Key Manager Plus')}</b></div>
-            {managed.length === 0 ? (
-              <p className="muted small">{t('Сертификаты не выбраны — сервис только следит за сроками. Выбрать — карандашом во вкладке «Серверы».')}</p>
-            ) : (
-              <ul className="ov-managed-list">
-                {managed.map(m => (
-                  <li key={m.name}>
-                    <span className="mono strong">{m.name}</span>
-                    {m.isDefault && <span className="badge accent">{t('по умолчанию')}</span>}
-                    {m.source?.expires_on && <span className="muted small">{t('выпуск до {0}', fmtDate(m.source.expires_on))}</span>}
-                    <span className={'pill-status ' + STATUS[m.status].tone} title={m.text}>{STATUS[m.status].label}</span>
-                    {STATUS[m.status].rank <= 4 && m.status !== 'unchecked' && <span className="ov-kmp-text">{m.text}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {managed.length === 0 && s.enabled && (
+            <p className="ov-note muted">{t('Сертификаты не выбраны — сервис только следит за сроками. Выбрать — карандашом во вкладке «Серверы».')}</p>
+          )}
 
           {!s.enabled ? (
             <p className="ov-note muted">{t('Сервер отключён — не проверяется. Данные на момент последней проверки.')}</p>
@@ -304,8 +320,9 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
               )}
               {isMobile ? (
                 <ul className="ov-list">
-                  {missing.map(m => <MissingItem key={'missing-' + m.name} m={m} action={button(m.name, true)} />)}
-                  {list.map(r => <CertItem key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={button(r.update_from, false)} />)}
+                  {ordered.map(({ key, row, m }) => row
+                    ? <CertItem key={key} r={row} warning={warning} names={byName.get(row.sha256 ?? '') ?? []} note={notes.get(key)} action={button(row.update_from, false)} />
+                    : <MissingItem key={key} m={m!} note={notes.get(key)} action={m!.source ? button(m!.name, true) : null} />)}
                 </ul>
               ) : (
                 <table className="ov-table">
@@ -318,8 +335,9 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                     </tr>
                   </thead>
                   <tbody>
-                    {missing.map(m => <MissingRow key={'missing-' + m.name} m={m} action={button(m.name, true)} />)}
-                    {list.map(r => <CertRow key={r.id} r={r} warning={warning} names={byName.get(r.sha256 ?? '') ?? []} action={button(r.update_from, false)} />)}
+                    {ordered.map(({ key, row, m }) => row
+                      ? <CertRow key={key} r={row} warning={warning} names={byName.get(row.sha256 ?? '') ?? []} note={notes.get(key)} action={button(row.update_from, false)} />
+                      : <MissingRow key={key} m={m!} note={notes.get(key)} action={m!.source ? button(m!.name, true) : null} />)}
                   </tbody>
                 </table>
               )}
@@ -332,7 +350,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
 }
 
 /** Выбранный для сервера сертификат, которого нет в хранилище Kerio. */
-function MissingRow({ m, action }: { m: Managed; action: ReactNode }) {
+function MissingRow({ m, note, action }: { m: Managed; note?: string; action: ReactNode }) {
   return (
     <tr className="missing">
       <td>
@@ -342,17 +360,18 @@ function MissingRow({ m, action }: { m: Managed; action: ReactNode }) {
         </span>
         <span className="sub">{t('выбран для этого сервера')}</span>
       </td>
-      <td><span className="badge info">{t('Есть в KMP')}</span></td>
+      <td>{m.source && <span className="badge info">{t('Есть в KMP')}</span>}</td>
       <td className="nowrap">{m.source?.expires_on ? t('выпуск до {0}', fmtDate(m.source.expires_on)) : '—'}</td>
       <td>
         <Status kind="warn">{t('Нет на сервере')}</Status>
+        {note && <span className="sub ov-why">{note}</span>}
         {action && <div className="ov-update">{action}</div>}
       </td>
     </tr>
   );
 }
 
-function MissingItem({ m, action }: { m: Managed; action: ReactNode }) {
+function MissingItem({ m, note, action }: { m: Managed; note?: string; action: ReactNode }) {
   return (
     <li className="ov-cert missing">
       <div className="ov-cert-top">
@@ -360,6 +379,7 @@ function MissingItem({ m, action }: { m: Managed; action: ReactNode }) {
         <Status kind="warn">{t('Нет на сервере')}</Status>
       </div>
       <div className="muted small">{t('выбран для этого сервера')}{m.source?.expires_on && <> · {t('выпуск до {0}', fmtDate(m.source.expires_on))}</>}</div>
+      {note && <div className="small ov-why">{note}</div>}
       {action && <div className="ov-update">{action}</div>}
     </li>
   );
@@ -369,7 +389,7 @@ function MissingItem({ m, action }: { m: Managed; action: ReactNode }) {
 function ServedBadges({ r, names }: { r: Row; names: string[] }) {
   return (
     <>
-      {r.served && <span className="badge accent" title={t('Его сервер подаёт по адресу администрирования')}>{t('подаётся')}</span>}
+      {r.served && <span className="badge accent" title={t('Сертификат по умолчанию: Kerio подаёт его без SNI и для имён без своего сертификата')}>{t('по умолчанию')}</span>}
       {names.filter(n => !r.served || n.toLowerCase() !== r.subject.toLowerCase()).map(n => (
         <span key={n} className="badge accent" title={t('Его Kerio подаёт клиентам, которые обращаются по имени {0}', n)}>{t('подаётся для {0}', n)}</span>
       ))}
@@ -377,7 +397,7 @@ function ServedBadges({ r, names }: { r: Row; names: string[] }) {
   );
 }
 
-function CertRow({ r, warning, names, action }: { r: Row; warning: number; names: string[]; action: ReactNode }) {
+function CertRow({ r, warning, names, note, action }: { r: Row; warning: number; names: string[]; note?: string; action: ReactNode }) {
   const origin = ORIGIN[r.origin];
   const state = CERT_STATE[r.state];
   const extra = r.dns_names.filter(n => n.toLowerCase() !== r.subject.toLowerCase());
@@ -405,13 +425,14 @@ function CertRow({ r, warning, names, action }: { r: Row; warning: number; names
       </td>
       <td>
         <Status kind={state.dot}>{state.label}</Status>
+        {note && <span className="sub ov-why">{note}</span>}
         {action && <div className="ov-update">{action}</div>}
       </td>
     </tr>
   );
 }
 
-function CertItem({ r, warning, names, action }: { r: Row; warning: number; names: string[]; action: ReactNode }) {
+function CertItem({ r, warning, names, note, action }: { r: Row; warning: number; names: string[]; note?: string; action: ReactNode }) {
   const origin = ORIGIN[r.origin];
   const state = CERT_STATE[r.state];
 
@@ -428,6 +449,7 @@ function CertItem({ r, warning, names, action }: { r: Row; warning: number; name
       <div className="muted small">{t('до {0} ·', r.not_after ? fmtDate(r.not_after.slice(0, 10)) : '—')} <span className={'days ' + daysTone(r.days_left, warning)}>{daysText(r.days_left)}</span>
         {r.issuer && <> · {r.issuer}</>}
       </div>
+      {note && <div className="small ov-why">{note}</div>}
       {action && <div className="ov-update">{action}</div>}
     </li>
   );

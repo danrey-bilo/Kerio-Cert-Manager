@@ -478,7 +478,7 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
               <div className="setting-row compact">
                 <div className="setting-label">
                   <span>{t('Ставить продлённые автоматически')}</span>
-                  <small>{t('Выключено — продления ждут письма и кнопки «Обновить» во вкладке «Обзор»; только что добавленный сертификат ставится сразу.')}</small>
+                  <small>{t('Выключено — продления ждут письма и кнопки «Обновить» во вкладке «Обзор»; только что добавленный сертификат встаёт в очередь установки сразу.')}</small>
                 </div>
                 <label className="switch"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /><span /></label>
               </div>

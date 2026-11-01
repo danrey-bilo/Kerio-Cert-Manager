@@ -1,5 +1,4 @@
 using System.Net;
-using KerioCertManager.Modules.Kerio.Domain;
 using KerioCertManager.Modules.KeyManager.Contracts;
 using Modules.Core.Errors;
 
@@ -89,11 +88,6 @@ internal static class CertificateNames
             {
                 свои.Add(годное);
             }
-        }
-
-        if ((extras?.Count ?? 0) > KerioServer.MaxExtras)
-        {
-            проблемы.Add(new Problem(string.Empty, $"сертификатов по именам больше {KerioServer.MaxExtras}", null));
         }
 
         if (проблемы.Count > 0)

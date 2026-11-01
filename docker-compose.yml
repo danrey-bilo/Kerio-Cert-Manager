@@ -19,7 +19,7 @@ x-logging: &logging
 services:
   api:
     # Образ из архива релиза (`docker load`); версия — KCM_IMAGE в .env.
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     build:
       context: .
       dockerfile: KerioCertManager.Api/Dockerfile
@@ -73,7 +73,7 @@ services:
 
   # Схема и роль kcm_app, разово: docker compose run --rm migrate. Единственная знает пароль владельца.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     profiles: ["tools"]
     command: ["migrate"]
     environment:

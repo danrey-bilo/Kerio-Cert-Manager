@@ -128,7 +128,6 @@
  "В Key Manager Plus нового выпуска пока нет — продлите сертификат.": "There is no new release in Key Manager Plus yet — renew the certificate.",
  "В Key Manager Plus новый выпуск — ждёт ручной установки.": "New release in Key Manager Plus — awaiting manual installation.",
  "В Key Manager Plus новый выпуск — пробный режим: проверен, но в Kerio не ставится.": "New release in Key Manager Plus — dry-run mode: verified but not installed in Kerio.",
- "В Key Manager Plus новый выпуск — установка в ближайшем проходе.": "New release in Key Manager Plus — will be installed in the next pass.",
  "В выгрузке Key Manager Plus нет сертификата с серийным номером {0}: к ключу подходит только {1}.": "The Key Manager Plus export has no certificate with serial number {0}: only {1} matches the key.",
  "В последнем опросе Key Manager Plus нет сертификата {0}.": "Certificate {0} was not in the last Key Manager Plus poll.",
  "В правке больше элементов, чем настроек.": "The update contains more items than there are settings.",
@@ -323,7 +322,6 @@
  "Новый выпуск в Key Manager Plus — установка.": "New release in Key Manager Plus — installing.",
  "Новый выпуск — ждёт ручной установки.": "New release — awaiting manual installation.",
  "Новый выпуск — пробный режим: проверен, но в Kerio не ставится.": "New release — dry-run mode: verified, but not installed in Kerio.",
- "Новый выпуск — установка в ближайшем проходе.": "New release — will be installed in the next pass.",
  "Новый пароль совпадает с текущим": "The new password is the same as the current one",
  "Новый пароль: ": "New password: ",
  "Новый сертификат ждёт ручной установки.": "The new certificate is awaiting manual installation.",
@@ -664,7 +662,6 @@
  "секреты скрыты: TrustToken": "secrets hidden: TrustToken",
  "сертификат, которого нет в хранилище": "a certificate that is not in the store",
  "сертификат, которого нет в хранилище (встроенный или неизвестный)": "a certificate that is not in the store (built-in or unknown)",
- "сертификатов по именам больше {0}": "more than {0} name certificates",
  "сертификаты для установки неоткуда взять — подключите модуль Key Manager Plus": "there is no source of certificates to install — register the Key Manager Plus module",
  "сессия": "session",
  "сетевая ошибка": "network error",
@@ -696,5 +693,7 @@
  "язык письма некому назвать": "nothing can determine the e-mail language",
  "🔴 Сертификат {0} не установлен": "🔴 Certificate {0} not installed",
  "🔴 Сертификат {0} не установлен — нужна ручная проверка": "🔴 Certificate {0} not installed — manual check required",
- "🟠 Новый сертификат не встал — возвращён прежний": "🟠 New certificate failed to install — previous one restored"
+ "🟠 Новый сертификат не встал — возвращён прежний": "🟠 New certificate failed to install — previous one restored",
+ "Новый выпуск — в очереди на установку.": "New release — queued for installation.",
+ "В Key Manager Plus новый выпуск — в очереди на установку.": "New release in Key Manager Plus — queued for installation."
 }

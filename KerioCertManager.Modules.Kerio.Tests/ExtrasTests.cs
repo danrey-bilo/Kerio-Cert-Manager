@@ -166,7 +166,7 @@ public sealed class ExtrasTests
             .Action.ShouldBe(PlanAction.None, "общая пауза");
 
         var kmp = new Dictionary<string, SourceCertificate> { [Имя] = Выпуск("bb", 90) };
-        ServerView.Доп(сервер, Доп(), kmp, 21, Сейчас, dryRun: false).StatusText.ShouldContain("в ближайшем проходе");
+        ServerView.Доп(сервер, Доп(), kmp, 21, Сейчас, dryRun: false).StatusText.ShouldContain("в очереди на установку");
         ServerView.Доп(сервер, Доп(), kmp, 21, Сейчас, dryRun: false, paused: true).StatusText.ShouldContain("ждёт ручной установки");
 
         var продление = Сервер(Лежит("aa", 30));

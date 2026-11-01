@@ -65,9 +65,6 @@ internal sealed partial class KerioDeployer(
     TimeProvider clock,
     ILogger<KerioDeployer> log)
 {
-    /// <summary>Больше этого числа сертификатов отпечатки по одному не считаются: хранилище Kerio не бездонно.</summary>
-    private const int ПотолокХранилища = 64;
-
     private static readonly TimeSpan ШагПроверки = TimeSpan.FromSeconds(3);
 
     /// <summary>Сколько ждать прежнего при откате из-за остановки сервиса: хост ждёт не дольше двух минут.</summary>
@@ -491,7 +488,7 @@ internal sealed partial class KerioDeployer(
         Dictionary<string, string> отпечатки,
         CancellationToken cancellationToken)
     {
-        foreach (var с in где.Where(с => с.IsServerCertificate).OrderByDescending(с => с.IsDefault).Take(ПотолокХранилища))
+        foreach (var с in где.Where(с => с.IsServerCertificate).OrderByDescending(с => с.IsDefault))
         {
             if (!отпечатки.TryGetValue(с.Id, out var отпечаток))
             {

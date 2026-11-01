@@ -14,7 +14,7 @@ verified over TLS on every port, rolled back if it does not come up, and the adm
 |---|---|
 | `latest` | The newest release |
 | `1.0` | The newest 1.0.x |
-| `1.0.4` | A fixed version — recommended for servers where updates are planned |
+| `1.0.5` | A fixed version — recommended for servers where updates are planned |
 
 ## Run with Portainer
 

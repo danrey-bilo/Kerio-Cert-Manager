@@ -63,7 +63,10 @@ internal enum ProcessOutcome
     Missing,
 }
 
-/// <summary>Проход синхронизации: опрос Key Manager Plus, затем каждый сервер — проверка, решение, установка, письма.</summary>
+/// <summary>
+/// Проход синхронизации: опрос Key Manager Plus, затем каждый сервер — проверка, очередь установки, письма.
+/// За проход сервер ставит не больше одного сертификата, а во всём сервисе установка идёт одна за раз.
+/// </summary>
 internal sealed class SyncCycle(
     AppDbContext db,
     ICertificateSource source,
@@ -71,6 +74,7 @@ internal sealed class SyncCycle(
     KerioDeployer deployer,
     KerioNotifier notifier,
     ServerLeases leases,
+    InstallGate gate,
     ISettingsReader settings,
     IAuditWriter audit,
     TimeProvider clock,
@@ -87,17 +91,27 @@ internal sealed class SyncCycle(
     internal static TimeSpan ПаузаПослеИзменения { get; set; } = TimeSpan.FromSeconds(40);
 
     private Guid? _аренда;
-    private DateTimeOffset? _изменено;
+    private Guid? _слот;
 
-    public async Task RunAsync(CancellationToken cancellationToken = default)
+    /// <summary>После <see cref="ProcessAsync"/>: у сервера остались сертификаты в очереди, и ставить их можно.</summary>
+    internal bool ОчередьОсталась { get; private set; }
+
+    /// <summary>Полный проход; <c>true</c> — очередь установки не пуста, следующий проход нужен скоро.</summary>
+    public Task<bool> RunAsync(CancellationToken cancellationToken = default) => RunAsync(refreshSource: true, cancellationToken);
+
+    /// <summary>Проход; без <paramref name="refreshSource"/> — по последнему опросу Key Manager Plus (очередь между опросами).</summary>
+    public async Task<bool> RunAsync(bool refreshSource, CancellationToken cancellationToken)
     {
         await ЗакрытьБрошенныеAsync(cancellationToken);
 
-        var опрос = await source.RefreshAsync(cancellationToken);
-
-        if (опрос is { Configured: true, Succeeded: false })
+        if (refreshSource)
         {
-            log.LogWarning("kerio_sync_source_failed {Error}", опрос.Error);
+            var опрос = await source.RefreshAsync(cancellationToken);
+
+            if (опрос is { Configured: true, Succeeded: false })
+            {
+                log.LogWarning("kerio_sync_source_failed {Error}", опрос.Error);
+            }
         }
 
         var серверы = await db.Set<KerioServer>()
@@ -106,6 +120,8 @@ internal sealed class SyncCycle(
             .OrderBy(с => с.Name)
             .Select(с => с.Id)
             .ToListAsync(cancellationToken);
+
+        var ещё = 0;
 
         // ⚠ Каждый сервер — в своей области: у прохода свой DbContext, а он не переносит параллельной работы.
         await Parallel.ForEachAsync(
@@ -116,13 +132,22 @@ internal sealed class SyncCycle(
                 try
                 {
                     await using var область = scopes.CreateAsyncScope();
-                    await область.ServiceProvider.GetRequiredService<SyncCycle>().ProcessAsync(id, forceApi: false, token);
+                    var цикл = область.ServiceProvider.GetRequiredService<SyncCycle>();
+
+                    await цикл.ProcessAsync(id, forceApi: false, token);
+
+                    if (цикл.ОчередьОсталась)
+                    {
+                        Interlocked.Increment(ref ещё);
+                    }
                 }
                 catch (Exception ошибка) when (!(ошибка is OperationCanceledException && token.IsCancellationRequested))
                 {
                     log.LogError("kerio_sync_server_failed {Server} {Error}", id, SafeError.Describe(ошибка));
                 }
             });
+
+        return ещё > 0;
     }
 
     /// <summary>Установки «идёт», чей сервер никто не держит, — процесс умер посреди них: закрыть отказом.</summary>
@@ -164,7 +189,7 @@ internal sealed class SyncCycle(
         {
             db.ChangeTracker.Clear();
             _аренда = владелец;
-            _изменено = null;
+            ОчередьОсталась = false;
 
             var сервер = await db.Set<KerioServer>().FirstOrDefaultAsync(с => с.Id == serverId, cancellationToken);
 
@@ -173,7 +198,18 @@ internal sealed class SyncCycle(
                 return ProcessOutcome.Missing;
             }
 
-            await ОбработатьAsync(сервер, forceApi || сервер.DeployRequestedAt is not null, cancellationToken);
+            var запросы = await db.Set<InstallRequest>()
+                .AsNoTracking()
+                .Where(з => з.ServerId == serverId)
+                .OrderBy(з => з.RequestedAt)
+                .ToListAsync(cancellationToken);
+
+            foreach (var запрос in запросы)
+            {
+                сервер.Requested.TryAdd(запрос.CommonName, запрос.RequestedBy);
+            }
+
+            await ОбработатьAsync(сервер, запросы, forceApi || запросы.Count > 0, cancellationToken);
 
             return ProcessOutcome.Done;
         }
@@ -219,7 +255,8 @@ internal sealed class SyncCycle(
         }
     }
 
-    private async Task ОбработатьAsync(KerioServer сервер, bool forceApi, CancellationToken cancellationToken)
+    private async Task ОбработатьAsync(
+        KerioServer сервер, IReadOnlyList<InstallRequest> запросы, bool forceApi, CancellationToken cancellationToken)
     {
         var проверка = await inspection.InspectAsync(сервер, forceApi, cancellationToken);
 
@@ -229,22 +266,18 @@ internal sealed class SyncCycle(
         var предупреждения = new List<ServerAlert>(
             Связь(сервер, проверка, await settings.GetAsync(KerioSettings.AlertUnreachableChecks, cancellationToken)));
 
+        var авто = await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken);
+        var дней = await settings.GetAsync(KerioSettings.WarningDays, cancellationToken);
+        var пробно = await settings.GetAsync(KerioSettings.DryRun, cancellationToken);
+        var часов = await settings.GetAsync(KerioSettings.AlertOverdueHours, cancellationToken);
+
         var текущий = string.IsNullOrWhiteSpace(сервер.CommonName)
             ? null
             : await source.CurrentAsync(сервер.CommonName, cancellationToken);
 
-        var план = DeployPlanner.Plan(
-            сервер,
-            проверка.Served,
-            текущий,
-            await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken),
-            await settings.GetAsync(KerioSettings.WarningDays, cancellationToken),
-            clock.GetUtcNow());
+        var план = DeployPlanner.Plan(сервер, проверка.Served, текущий, авто, дней, clock.GetUtcNow());
 
         предупреждения.AddRange(план.Alerts);
-
-        var запрошено = сервер.DeployRequestedAt is not null;
-        var ручной = сервер.ManualFor(сервер.CommonName);
 
         if (план.Action == PlanAction.Adopt && проверка.Served is { } подан && план.Source is { } свой
             && await ВыпускKmpAsync(сервер, подан, свой, предупреждения, cancellationToken))
@@ -272,59 +305,93 @@ internal sealed class SyncCycle(
 
             log.LogInformation("kerio_certificate_adopted {Server} {CommonName} {Serial}", сервер.Name, свой.CommonName, свой.SerialNumber);
         }
-        else if (план.Action == PlanAction.Deploy && план.Source is { } выпуск)
+
+        var кандидаты = new List<InstallCandidate>();
+        var установки = new Dictionary<string, Func<CancellationToken, Task<DeployResult>>>(StringComparer.OrdinalIgnoreCase);
+
+        DateTimeOffset? Нажат(string имя) =>
+            запросы.FirstOrDefault(з => string.Equals(з.CommonName, имя, StringComparison.OrdinalIgnoreCase))?.RequestedAt;
+
+        if (план.Action == PlanAction.Deploy && план.Source is { } выпуск && сервер.CommonName is { } имяПоУмолчанию
+            && ВОчередь(сервер, имяПоУмолчанию, выпуск, сервер.DryRunSerial, проверка, пробно, ошибка => сервер.LastDeployError = ошибка))
         {
-            if (проверка.ApiError is { } нельзя)
+            кандидаты.Add(new InstallCandidate(имяПоУмолчанию, true, Нажат(имяПоУмолчанию), сервер.ServedNotAfter));
+            установки[имяПоУмолчанию] = token => УстановитьAsync(сервер, план, выпуск, пробно, token);
+        }
+
+        var свои = await ДопAsync(сервер, проверка, авто, дней, cancellationToken);
+
+        foreach (var (доп, планДоп) in свои)
+        {
+            if (планДоп.Action == PlanAction.Deploy && планДоп.Source is { } выпускДоп
+                && ВОчередь(сервер, доп.CommonName, выпускДоп, доп.DryRunSerial, проверка, пробно, ошибка => доп.LastError = ошибка))
             {
-                if (ручной)
-                {
-                    сервер.LastDeployError = $"Установка не начата: {нельзя}";
-                }
+                var лежит = сервер.Store.Where(з => ExtraPlanner.Того(з, доп.CommonName)).Max(з => з.NotAfter);
 
-                log.LogWarning("kerio_deploy_skipped_api {Server} {Error}", сервер.Name, нельзя);
-            }
-            else
-            {
-                var пробно = await settings.GetAsync(KerioSettings.DryRun, cancellationToken);
-
-                if (пробно && !ручной && Fingerprints.SameSerial(сервер.DryRunSerial, выпуск.SerialNumber))
-                {
-                    log.LogDebug("kerio_dry_run_already {Server} {Serial}", сервер.Name, выпуск.SerialNumber);
-                }
-                else
-                {
-                    var итог = await УстановитьAsync(сервер, план, выпуск, пробно, cancellationToken);
-
-                    if (итог.Outcome is DeployOutcomes.Succeeded or DeployOutcomes.RolledBack
-                        || (итог.Outcome == DeployOutcomes.Failed && итог.KerioId is not null))
-                    {
-                        await ОбновитьХранилищеAsync(сервер, cancellationToken);
-                    }
-                }
+                кандидаты.Add(new InstallCandidate(доп.CommonName, false, Нажат(доп.CommonName), лежит));
+                установки[доп.CommonName] = token =>
+                    УстановитьДопAsync(сервер, доп, планДоп.Trigger ?? DeployTriggers.Renewal, выпускДоп, пробно, token);
             }
         }
 
-        await ДопAsync(сервер, проверка, предупреждения, cancellationToken);
+        var очередь = InstallOrder.Sort(кандидаты, clock.GetUtcNow()).Select(к => к.CommonName).ToList();
+        string? поставлен = null;
+        DeployResult? итог = null;
+
+        // ⚠ Один сертификат за проход: остальные ждут следующего, а сервер не занят установками на час.
+        if (очередь.Count > 0 && проверка.ApiError is null)
+        {
+            поставлен = очередь[0];
+            очередь.RemoveAt(0);
+            итог = await ПоочерёдноAsync(сервер, установки[поставлен], cancellationToken);
+
+            if (итог.Outcome is DeployOutcomes.Succeeded or DeployOutcomes.RolledBack
+                || (итог.Outcome == DeployOutcomes.Failed && итог.KerioId is not null))
+            {
+                await ОбновитьХранилищеAsync(сервер, cancellationToken);
+            }
+        }
+        else if (очередь.Count > 0)
+        {
+            log.LogWarning("kerio_deploy_skipped_api {Server} {Error}", сервер.Name, проверка.ApiError);
+        }
+
+        сервер.InstallQueue = очередь;
+        ОчередьОсталась = очередь.Count > 0 && проверка.ApiError is null;
+
+        foreach (var (доп, планДоп) in свои)
+        {
+            var встал = итог?.Outcome == DeployOutcomes.Succeeded
+                && string.Equals(поставлен, доп.CommonName, StringComparison.OrdinalIgnoreCase);
+
+            if (!встал)
+            {
+                предупреждения.AddRange(планДоп.Alerts);
+            }
+
+            if (ПросрочкаДоп(сервер, доп, планДоп, часов, дней, clock.GetUtcNow()) is { } просрочкаДоп)
+            {
+                предупреждения.Add(просрочкаДоп);
+            }
+        }
 
         if (Устаревший(сервер) is { } поИмени)
         {
             предупреждения.Add(поИмени);
         }
 
-        // ⚠ Запрос на одно имя тоже гасится проходом, иначе сертификат по умолчанию ставился бы каждый раз.
-        if (план.ClearManualRequest || запрошено)
+        // ⚠ Запрос гасится, когда имени нет в очереди: поставлен, не нужен или поставить нельзя. Новые нажатия не трогаем.
+        var погасить = запросы
+            .Where(з => !очередь.Contains(з.CommonName, StringComparer.OrdinalIgnoreCase))
+            .Select(з => з.Id)
+            .ToList();
+
+        if (погасить.Count > 0)
         {
-            сервер.DeployRequestedAt = null;
-            сервер.DeployRequestedBy = null;
-            сервер.DeployRequestedName = null;
+            await db.Set<InstallRequest>().Where(з => погасить.Contains(з.Id)).ExecuteDeleteAsync(cancellationToken);
         }
 
-        if (Просрочка(
-                сервер,
-                план,
-                await settings.GetAsync(KerioSettings.AlertOverdueHours, cancellationToken),
-                await settings.GetAsync(KerioSettings.WarningDays, cancellationToken),
-                clock.GetUtcNow()) is { } просрочка)
+        if (Просрочка(сервер, план, часов, дней, clock.GetUtcNow()) is { } просрочка)
         {
             предупреждения.Add(просрочка);
         }
@@ -333,6 +400,75 @@ internal sealed class SyncCycle(
 
         await notifier.AlertAsync(сервер, предупреждения, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Встаёт ли сертификат в очередь. Ручной запрос при недоступном API не ждёт — отказ с причиной; пробный прогон
+    /// того же выпуска не повторяется.
+    /// </summary>
+    private static bool ВОчередь(
+        KerioServer сервер,
+        string имя,
+        SourceCertificate выпуск,
+        string? пробныйВыпуск,
+        InspectionResult проверка,
+        bool пробно,
+        Action<string> отказ)
+    {
+        var ручной = сервер.ManualFor(имя);
+
+        if (проверка.ApiError is { } нельзя && ручной)
+        {
+            отказ($"Установка не начата: {нельзя}");
+            return false;
+        }
+
+        return !(пробно && !ручной && Fingerprints.SameSerial(пробныйВыпуск, выпуск.SerialNumber));
+    }
+
+    /// <summary>Установка через общий слот: пока ставит другой сервер, этот ждёт своей очереди, держа аренду.</summary>
+    private async Task<DeployResult> ПоочерёдноAsync(
+        KerioServer сервер, Func<CancellationToken, Task<DeployResult>> поставить, CancellationToken cancellationToken)
+    {
+        await ПередУстановкойAsync(сервер, cancellationToken);
+
+        var владелец = Guid.CreateVersion7();
+        var продлено = clock.GetUtcNow();
+        var ждал = false;
+
+        while (!await gate.TryAcquireAsync(владелец, cancellationToken))
+        {
+            if (!ждал)
+            {
+                log.LogInformation("kerio_install_waits_slot {Server}", сервер.Name);
+                ждал = true;
+            }
+
+            if (_аренда is { } аренда && clock.GetUtcNow() - продлено > TimeSpan.FromMinutes(1))
+            {
+                await leases.ExtendAsync(сервер.Id, аренда);
+                продлено = clock.GetUtcNow();
+            }
+
+            await Task.Delay(InstallGate.Опрос, clock, cancellationToken);
+        }
+
+        _слот = владелец;
+
+        try
+        {
+            if (_аренда is { } аренда)
+            {
+                await leases.ExtendAsync(сервер.Id, аренда);
+            }
+
+            return await поставить(cancellationToken);
+        }
+        finally
+        {
+            _слот = null;
+            await gate.ReleaseAsync(владелец);
+        }
     }
 
     /// <summary>Подаёт ли сервер именно сертификат этого выпуска KMP — по SHA-256, а не по серийному номеру.</summary>
@@ -436,32 +572,22 @@ internal sealed class SyncCycle(
         }
     }
 
-    /// <summary>Сертификаты своих имён: признать лежащие, поставить недостающие, предупредить о сроках.</summary>
-    private async Task ДопAsync(
-        KerioServer сервер, InspectionResult проверка, List<ServerAlert> предупреждения, CancellationToken cancellationToken)
+    /// <summary>Сертификаты своих имён: признать лежащие и решить по каждому — ставить ли.</summary>
+    private async Task<IReadOnlyList<(ExtraCertificate Доп, ExtraPlan План)>> ДопAsync(
+        KerioServer сервер, InspectionResult проверка, bool авто, int дней, CancellationToken cancellationToken)
     {
-        if (сервер.Extras.Count == 0)
-        {
-            return;
-        }
+        var итог = new List<(ExtraCertificate, ExtraPlan)>();
 
-        var авто = await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken);
-        var дней = await settings.GetAsync(KerioSettings.WarningDays, cancellationToken);
-        var пробно = await settings.GetAsync(KerioSettings.DryRun, cancellationToken);
-        var часов = await settings.GetAsync(KerioSettings.AlertOverdueHours, cancellationToken);
-        var изменено = false;
-
-        foreach (var доп in сервер.Extras.ToList())
+        foreach (var доп in сервер.Extras)
         {
             if (string.Equals(доп.CommonName, сервер.CommonName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var ручной = сервер.ManualFor(доп.CommonName);
             var текущий = await source.CurrentAsync(доп.CommonName, cancellationToken);
-            var план = ExtraPlanner.Plan(сервер, доп, текущий, проверка.Store is not null, авто, дней, clock.GetUtcNow(), ручной);
-            var своиПредупреждения = new List<ServerAlert>(план.Alerts);
+            var план = ExtraPlanner.Plan(
+                сервер, доп, текущий, проверка.Store is not null, авто, дней, clock.GetUtcNow(), сервер.ManualFor(доп.CommonName));
 
             if (план.Action == PlanAction.Adopt && план.Present is { } лежит && план.Source is { } свой)
             {
@@ -478,40 +604,11 @@ internal sealed class SyncCycle(
 
                 log.LogInformation("kerio_extra_adopted {Server} {CommonName} {Serial}", сервер.Name, свой.CommonName, свой.SerialNumber);
             }
-            else if (план.Action == PlanAction.Deploy && план.Source is { } выпуск)
-            {
-                if (проверка.ApiError is { } нельзя)
-                {
-                    if (ручной)
-                    {
-                        доп.LastError = $"Установка не начата: {нельзя}";
-                    }
-                }
-                else if (!(пробно && !ручной && Fingerprints.SameSerial(доп.DryRunSerial, выпуск.SerialNumber)))
-                {
-                    var итог = await УстановитьДопAsync(сервер, доп, план.Trigger ?? DeployTriggers.Renewal, выпуск, пробно, cancellationToken);
 
-                    изменено |= итог.Outcome != DeployOutcomes.DryRun && итог.KerioId is not null;
-
-                    if (итог.Outcome == DeployOutcomes.Succeeded)
-                    {
-                        своиПредупреждения.Clear();
-                    }
-                }
-            }
-
-            предупреждения.AddRange(своиПредупреждения);
-
-            if (ПросрочкаДоп(сервер, доп, план, часов, дней, clock.GetUtcNow()) is { } просрочка)
-            {
-                предупреждения.Add(просрочка);
-            }
+            итог.Add((доп, план));
         }
 
-        if (изменено)
-        {
-            await ОбновитьХранилищеAsync(сервер, cancellationToken);
-        }
+        return итог;
     }
 
     /// <summary>«Не обновился сам» для сертификата своего имени: отсчёт с продления, но не раньше добавления в список.</summary>
@@ -655,10 +752,10 @@ internal sealed class SyncCycle(
             дополнительный: true,
             cancellationToken);
 
-    /// <summary>Перед установкой: продлить аренду и, если хранилище в этом проходе уже менялось, дождаться перезапуска HTTPS.</summary>
+    /// <summary>Перед установкой: продлить аренду и, если хранилище недавно менялось, дождаться перезапуска HTTPS.</summary>
     private async Task ПередУстановкойAsync(KerioServer сервер, CancellationToken cancellationToken)
     {
-        if (_изменено is { } когда && clock.GetUtcNow() - когда < ПаузаПослеИзменения)
+        if (сервер.LastDeployAt is { } когда && clock.GetUtcNow() - когда < ПаузаПослеИзменения)
         {
             var ждать = ПаузаПослеИзменения - (clock.GetUtcNow() - когда);
             log.LogInformation("kerio_deploy_waits_restart {Server} {Seconds}", сервер.Name, (int)ждать.TotalSeconds);
@@ -685,8 +782,6 @@ internal sealed class SyncCycle(
     {
         var ручной = trigger == DeployTriggers.Manual;
 
-        await ПередУстановкойAsync(сервер, cancellationToken);
-
         var установка = new KerioDeployment
         {
             Id = Guid.CreateVersion7(),
@@ -695,7 +790,7 @@ internal sealed class SyncCycle(
             Trigger = trigger,
             Outcome = DeployOutcomes.Running,
             StartedAt = clock.GetUtcNow(),
-            ActorId = ручной ? сервер.DeployRequestedBy : null,
+            ActorId = ручной && сервер.Requested.TryGetValue(выпуск.CommonName, out var кто) ? кто : null,
             CommonName = выпуск.CommonName,
             SerialNumber = выпуск.SerialNumber,
             PreviousSha256 = дополнительный ? null : сервер.ServedSha256,
@@ -717,6 +812,11 @@ internal sealed class SyncCycle(
                 {
                     установка.Steps.Add(шаг);
                     await db.SaveChangesAsync(CancellationToken.None);
+
+                    if (_слот is { } слот)
+                    {
+                        await gate.ExtendAsync(слот);
+                    }
                 },
                 cancellationToken);
         }
@@ -743,11 +843,6 @@ internal sealed class SyncCycle(
 
         сервер.LastDeployAt = сейчас;
         применить(итог, сейчас);
-
-        if (итог.Outcome != DeployOutcomes.DryRun && (итог.KerioId is not null || итог.PreviousKerioId is not null))
-        {
-            _изменено = сейчас;
-        }
 
         // ⚠ Итог установки и строка журнала.
         audit.Write(new AuditEntry(

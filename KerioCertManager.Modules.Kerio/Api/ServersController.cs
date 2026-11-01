@@ -559,10 +559,12 @@ internal sealed class ServersController(
                 new Dictionary<string, object?>(StringComparer.Ordinal) { ["reason"] = "Проверьте связь с Key Manager Plus." });
         }
 
-        await ИзменитьAsync(
-            id,
-            сервер =>
+        // ⚠ Запрос — строка очереди, а не поле сервера: нажатия во время прохода не теряются и копятся по порядку.
+        await СохранитьAsync(
+            async token =>
             {
+                var сервер = await ЗаблокироватьAsync(id, token) ?? throw НетСервера();
+
                 if (string.IsNullOrWhiteSpace(сервер.CommonName) && сервер.Extras.Count == 0)
                 {
                     throw Неверно(CertificateNames.Field, "Сначала выберите сертификаты Key Manager Plus для этого сервера.");
@@ -578,24 +580,37 @@ internal sealed class ServersController(
                     throw Неверно("password", "Задайте пароль учётной записи Kerio.");
                 }
 
-                сервер.DeployRequestedAt = clock.GetUtcNow();
-                сервер.DeployRequestedBy = current.Id;
-                сервер.DeployRequestedName = выбран;
+                IReadOnlyList<string> имена = выбран is null ? сервер.ManagedNames() : [выбран];
+                var уже = await db.Set<InstallRequest>().Where(з => з.ServerId == id).Select(з => з.CommonName).ToListAsync(token);
+                var новые = имена.Where(и => !уже.Contains(и, StringComparer.OrdinalIgnoreCase)).ToList();
+                var сейчас = clock.GetUtcNow();
 
-                return new AuditEntry(
+                foreach (var имяЗапроса in новые)
+                {
+                    db.Set<InstallRequest>().Add(new InstallRequest
+                    {
+                        Id = Guid.CreateVersion7(),
+                        ServerId = id,
+                        CommonName = имяЗапроса,
+                        RequestedAt = сейчас,
+                        RequestedBy = current.Id,
+                    });
+                }
+
+                audit.Write(new AuditEntry(
                     KerioActions.DeployRequested,
                     ResourceType: KerioActions.ServerResource,
                     ResourceId: сервер.Id,
                     Changes: new Dictionary<string, object?>(StringComparer.Ordinal)
                     {
                         ["server"] = сервер.Name,
-                        ["common_name"] = сервер.CommonName,
-                        ["extras"] = string.Join(", ", сервер.Extras.Select(д => д.CommonName)),
-                        ["requested"] = сервер.DeployRequestedName,
-                    });
+                        ["requested"] = string.Join(", ", имена),
+                        ["queued"] = новые.Count,
+                    }));
+
+                await db.SaveChangesAsync(token);
             },
-            cancellationToken,
-            touch: false);
+            cancellationToken);
 
         wakeup.Signal();
 
@@ -713,13 +728,16 @@ internal sealed class ServersController(
         var сейчас = clock.GetUtcNow();
 
         var серверы = await db.Set<KerioServer>().AsNoTracking().OrderBy(с => с.Name).ToListAsync(cancellationToken);
+        var (запросы, ставятся) = await ОчередьAsync(null, cancellationToken);
 
-        return [.. серверы.Select(с => ServerView.Of(с, текущие, дней, сейчас, пробно, поНомеру, пауза))];
+        return [.. серверы.Select(с => ServerView.Of(
+            с, текущие, дней, сейчас, пробно, поНомеру, пауза, запросы[с.Id].ToList(), ставятся.GetValueOrDefault(с.Id)))];
     }
 
     private async Task<ServerOut> ОдинAsync(KerioServer сервер, CancellationToken cancellationToken)
     {
         var выпуски = await source.ListAsync(cancellationToken);
+        var (запросы, ставятся) = await ОчередьAsync(сервер.Id, cancellationToken);
 
         return ServerView.Of(
             сервер,
@@ -728,7 +746,32 @@ internal sealed class ServersController(
             clock.GetUtcNow(),
             await settings.GetAsync(KerioSettings.DryRun, cancellationToken),
             ServerView.BySerial(выпуски),
-            !await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken));
+            !await settings.GetAsync(KerioSettings.AutoDeploy, cancellationToken),
+            запросы[сервер.Id].ToList(),
+            ставятся.GetValueOrDefault(сервер.Id));
+    }
+
+    /// <summary>Нажатые «Обновить» и «Добавить» по порядку и что ставится сейчас — по серверам.</summary>
+    private async Task<(ILookup<Guid, string> Запросы, Dictionary<Guid, string> Ставятся)> ОчередьAsync(
+        Guid? serverId, CancellationToken cancellationToken)
+    {
+        var запросы = await db.Set<InstallRequest>()
+            .AsNoTracking()
+            .Where(з => serverId == null || з.ServerId == serverId)
+            .OrderBy(з => з.RequestedAt)
+            .Select(з => new { з.ServerId, з.CommonName })
+            .ToListAsync(cancellationToken);
+
+        var идут = await db.Set<KerioDeployment>()
+            .AsNoTracking()
+            .Where(у => у.Outcome == DeployOutcomes.Running && (serverId == null || у.ServerId == serverId))
+            .OrderByDescending(у => у.StartedAt)
+            .Select(у => new { у.ServerId, у.CommonName })
+            .ToListAsync(cancellationToken);
+
+        return (
+            запросы.ToLookup(з => з.ServerId, з => з.CommonName),
+            идут.DistinctBy(у => у.ServerId).ToDictionary(у => у.ServerId, у => у.CommonName));
     }
 
     private async Task<KerioServer> НайтиAsync(Guid id, bool tracked, CancellationToken cancellationToken)

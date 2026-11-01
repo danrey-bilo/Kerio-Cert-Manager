@@ -812,14 +812,9 @@ html[data-device="mobile"] .setting-row.rule { flex-wrap: nowrap; }
 .ov-chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .ov-meta { display: grid; justify-items: end; gap: 2px; text-align: right; flex: none; }
 .ov-body { border-top: 1px solid var(--line); }
-.ov-managed { display: grid; gap: 8px; margin: 14px 18px; padding: 12px 14px; border-radius: 10px; background: var(--hover); }
-.ov-managed-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.ov-managed-head svg { width: 15px; height: 15px; color: var(--muted); }
-.ov-managed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.ov-managed-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; }
-.ov-managed-list .strong { font-weight: 600; }
-.ov-kmp-text { flex-basis: 100%; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
 .ov-update { margin-top: 6px; }
+.ov-installing { display: inline-flex; align-items: center; gap: 6px; }
+.ov-why { max-width: 32ch; color: var(--muted); }
 .ov-update button { min-height: 28px; padding: 3px 10px; font-size: 12.5px; }
 
 .cert-list { display: grid; max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
@@ -841,8 +836,7 @@ html[data-device="mobile"] .ov-head { padding: 12px 14px; flex-wrap: wrap; gap: 
 html[data-device="mobile"] .ov-title { flex: 1 1 0; }
 html[data-device="mobile"] .ov-meta { justify-items: end; }
 html[data-device="mobile"] .ov-chips { order: 5; flex-basis: 100%; padding-left: 26px; }
-html[data-device="mobile"] .ov-managed { margin: 12px 14px; }
-html[data-device="mobile"] .ov-list-actions { gap: 12px; }
+html[data-device="mobile"] html[data-device="mobile"] .ov-list-actions { gap: 12px; }
 html[data-device="mobile"] .cert-list { max-height: none; }
 html[data-device="mobile"] .cert-row { flex-wrap: wrap; }
 html[data-device="mobile"] .cert-row .pick-badges { order: 4; width: 100%; justify-content: flex-start; padding-left: 29px; }

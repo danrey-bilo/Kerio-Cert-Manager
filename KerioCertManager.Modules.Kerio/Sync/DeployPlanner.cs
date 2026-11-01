@@ -58,7 +58,6 @@ internal sealed record DeployPlan(
     SourceCertificate? Source,
     IReadOnlyList<ServerAlert> Alerts,
     string Note,
-    bool ClearManualRequest,
     bool Behind = false);
 
 /// <summary>Решает, ставить ли сертификат, — без побочных эффектов.</summary>
@@ -80,7 +79,7 @@ internal static class DeployPlanner
         if (string.IsNullOrWhiteSpace(server.CommonName))
         {
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
-            return new DeployPlan(PlanAction.None, null, null, предупреждения, "Сертификат Key Manager Plus не выбран — только наблюдение.", ручной);
+            return new DeployPlan(PlanAction.None, null, null, предупреждения, "Сертификат Key Manager Plus не выбран — только наблюдение.");
         }
 
         if (source is null)
@@ -94,7 +93,7 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
 
-            return new DeployPlan(PlanAction.None, null, null, предупреждения, "В Key Manager Plus нет привязанного сертификата.", ручной);
+            return new DeployPlan(PlanAction.None, null, null, предупреждения, "В Key Manager Plus нет привязанного сертификата.");
         }
 
         var наМесте = served is not null && Fingerprints.SameSerial(served.Serial, source.SerialNumber);
@@ -113,14 +112,13 @@ internal static class DeployPlanner
                 null,
                 source,
                 предупреждения,
-                свой ? "На сервере текущий сертификат." : "На сервере уже текущий сертификат Key Manager Plus — принят как установленный.",
-                ручной);
+                свой ? "На сервере текущий сертификат." : "На сервере уже текущий сертификат Key Manager Plus — принят как установленный.");
         }
 
         if (ручной)
         {
             return new DeployPlan(
-                PlanAction.Deploy, DeployTriggers.Manual, source, предупреждения, "Установка по запросу администратора.", true, Behind: !наМесте);
+                PlanAction.Deploy, DeployTriggers.Manual, source, предупреждения, "Установка по запросу администратора.", Behind: !наМесте);
         }
 
         if (served is null)
@@ -131,7 +129,6 @@ internal static class DeployPlanner
                 source,
                 предупреждения,
                 "Сервер не ответил по TLS — установка отложена.",
-                false,
                 Behind: server.ServedSerial is not null && !Fingerprints.SameSerial(server.ServedSerial, source.SerialNumber)
                     && !Fingerprints.SameSerial(server.InstalledSerial, source.SerialNumber));
         }
@@ -148,7 +145,7 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
 
-            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Сертификат на сервере сменили мимо сервиса.", false);
+            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Сертификат на сервере сменили мимо сервиса.");
         }
 
         var первая = server.InstalledSerial is null;
@@ -166,8 +163,7 @@ internal static class DeployPlanner
                     null,
                     source,
                     предупреждения,
-                    "На сервере действует сертификат дольше выпуска из Key Manager Plus — замена не нужна.",
-                    false);
+                    "На сервере действует сертификат дольше выпуска из Key Manager Plus — замена не нужна.");
             }
         }
 
@@ -188,7 +184,7 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: true);
 
-            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Новый сертификат ждёт ручной установки.", false, Behind: true);
+            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Новый сертификат ждёт ручной установки.", Behind: true);
         }
 
         if (Fingerprints.SameSerial(server.FailedSerial, source.SerialNumber) && server.NextAttemptAt is { } повтор && повтор > now)
@@ -201,7 +197,6 @@ internal static class DeployPlanner
                 source,
                 предупреждения,
                 $"Прошлая установка не удалась; повтор после {повтор.ToUniversalTime():yyyy-MM-dd HH:mm} UTC.",
-                false,
                 Behind: true);
         }
 
@@ -210,7 +205,7 @@ internal static class DeployPlanner
             триггер = DeployTriggers.Retry;
         }
 
-        return new DeployPlan(PlanAction.Deploy, триггер, source, предупреждения, "Новый выпуск в Key Manager Plus — установка.", false, Behind: true);
+        return new DeployPlan(PlanAction.Deploy, триггер, source, предупреждения, "Новый выпуск в Key Manager Plus — установка.", Behind: true);
     }
 
     /// <summary>Пауза перед повтором после <paramref name="failures"/> неудач подряд: 5, 15, 30 минут, затем час.</summary>

@@ -50,7 +50,7 @@ services:
 
   # Разово: схема, роль kcm_app и, если заданы, первый администратор или сброс доступа.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     command: ["migrate"]
     restart: "no"
     environment:
@@ -79,7 +79,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.4}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.5}
     restart: unless-stopped
     stop_grace_period: 2m
     environment:

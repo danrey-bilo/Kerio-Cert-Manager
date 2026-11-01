@@ -44,7 +44,9 @@ internal static class ServerView
         DateTimeOffset now,
         bool dryRun = false,
         IReadOnlyDictionary<string, SourceCertificate>? bySerial = null,
-        bool paused = false)
+        bool paused = false,
+        IReadOnlyList<string>? requested = null,
+        string? installing = null)
     {
         ArgumentNullException.ThrowIfNull(с);
         ArgumentNullException.ThrowIfNull(kmp);
@@ -88,14 +90,33 @@ internal static class ServerView
             с.LastDeployAt,
             с.LastDeployError,
             с.NextAttemptAt,
-            с.DeployRequestedAt,
-            с.DeployRequestedName,
+            Очередь(с, requested ?? [], installing),
+            installing,
             с.CreatedAt,
             с.UpdatedAt,
             bySerial is null ? [] : Хранилище(с, bySerial, kmp, warningDays, now),
             с.StoreCheckedAt,
             [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun, paused))],
             с.ServedByName);
+    }
+
+    /// <summary>Очередь установки для панели: нажатые и ещё не взятые проходом — первыми, как их возьмёт следующий проход.</summary>
+    internal static IReadOnlyList<string> Очередь(KerioServer с, IReadOnlyList<string> requested, string? installing)
+    {
+        var ведомые = с.ManagedNames();
+        var итог = new List<string>();
+
+        foreach (var имя in requested.Concat(с.InstallQueue))
+        {
+            if (ведомые.Contains(имя, StringComparer.OrdinalIgnoreCase)
+                && !string.Equals(имя, installing, StringComparison.OrdinalIgnoreCase)
+                && !итог.Contains(имя, StringComparer.OrdinalIgnoreCase))
+            {
+                итог.Add(имя);
+            }
+        }
+
+        return итог;
     }
 
     /// <summary>Сертификат своего имени: что в KMP, лежит ли в хранилище, подаётся ли по имени.</summary>
@@ -129,7 +150,7 @@ internal static class ServerView
                 ? "Новый выпуск — пробный режим: проверен, но в Kerio не ставится."
                 // ⚠ Как в ExtraPlanner: первая установка не ждёт выключателя сервера, общая пауза держит всё.
                 : !paused && (с.AutoDeploy || (д.InstalledSerial is null && !с.Store.Any(з => ExtraPlanner.Того(з, д.CommonName))))
-                    ? "Новый выпуск — установка в ближайшем проходе." : "Новый выпуск — ждёт ручной установки.");
+                    ? "Новый выпуск — в очереди на установку." : "Новый выпуск — ждёт ручной установки.");
 
         return new ExtraOut(
             д.CommonName,
@@ -260,7 +281,7 @@ internal static class ServerView
             return (ServerStatuses.UpdatePending, dryRun
                 ? "В Key Manager Plus новый выпуск — пробный режим: проверен, но в Kerio не ставится."
                 : !paused && (с.AutoDeploy || с.InstalledSerial is null)
-                    ? "В Key Manager Plus новый выпуск — установка в ближайшем проходе."
+                    ? "В Key Manager Plus новый выпуск — в очереди на установку."
                     : "В Key Manager Plus новый выпуск — ждёт ручной установки.");
         }
 

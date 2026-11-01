@@ -19,8 +19,6 @@ internal sealed class KerioServer
 {
     public const int MaxName = 100;
 
-    public const int MaxExtras = 20;
-
     public const int MaxNotifyEmails = 20;
 
     public const int MaxVerifyPorts = 10;
@@ -150,19 +148,14 @@ internal sealed class KerioServer
     /// <summary>Выпуск, уже прогнанный пробно: пробный прогон не повторяется каждый проход.</summary>
     public string? DryRunSerial { get; set; }
 
-    /// <summary>Администратор нажал «Обновить».</summary>
-    public DateTimeOffset? DeployRequestedAt { get; set; }
+    /// <summary>Имена из <see cref="InstallRequest"/> на время прохода: кто нажал «Обновить» или «Добавить».</summary>
+    public Dictionary<string, Guid?> Requested { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public Guid? DeployRequestedBy { get; set; }
+    /// <summary>Просил ли администратор поставить этот сертификат.</summary>
+    public bool ManualFor(string? commonName) => commonName is not null && Requested.ContainsKey(commonName);
 
-    /// <summary>Какой сертификат ставить по кнопке; <c>null</c> — все выбранные.</summary>
-    public string? DeployRequestedName { get; set; }
-
-    /// <summary>Просил ли администратор поставить этот сертификат: все выбранные или именно его.</summary>
-    public bool ManualFor(string? commonName) =>
-        DeployRequestedAt is not null
-        && commonName is not null
-        && (DeployRequestedName is null || string.Equals(DeployRequestedName, commonName, StringComparison.OrdinalIgnoreCase));
+    /// <summary>Очередь установки по последнему проходу: первым — тот, что встанет следующим.</summary>
+    public List<string> InstallQueue { get; set; } = [];
 
     /// <summary>Аренда сервера одним проходом: двое не ставят одновременно.</summary>
     public DateTimeOffset? LeaseUntil { get; set; }
@@ -342,6 +335,33 @@ internal sealed class KerioDeployment
     public string? Error { get; set; }
 
     public List<DeployStep> Steps { get; set; } = [];
+}
+
+/// <summary>Запрос администратора поставить сертификат: «Обновить» или «Добавить». Гасится, когда установка прошла или не нужна.</summary>
+internal sealed class InstallRequest
+{
+    public required Guid Id { get; set; }
+
+    public required Guid ServerId { get; set; }
+
+    /// <summary>Имя ровно как в списке сервера.</summary>
+    public required string CommonName { get; set; }
+
+    public DateTimeOffset RequestedAt { get; set; }
+
+    public Guid? RequestedBy { get; set; }
+}
+
+/// <summary>Единственная строка: кто сейчас ставит сертификат. Во всём сервисе установка идёт одна за раз.</summary>
+internal sealed class InstallSlot
+{
+    public const int Only = 1;
+
+    public int Id { get; set; } = Only;
+
+    public DateTimeOffset? LeaseUntil { get; set; }
+
+    public Guid? LeaseOwner { get; set; }
 }
 
 /// <summary>Отправленное оповещение: что, о каком сервере, кому — для вкладки «Оповещения».</summary>

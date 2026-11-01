@@ -28,9 +28,6 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
     /// <summary>Роль Kerio, у которой есть право на сертификаты.</summary>
     internal const string FullAdmin = "FullAdmin";
 
-    /// <summary>Больше в обзор не берётся: хранилище Kerio на сотни сертификатов — не наш случай, а время прохода — наше.</summary>
-    internal const int ПотолокХранилища = 100;
-
     public async Task<InspectionResult> InspectAsync(KerioServer server, bool forceApi, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(server);
@@ -149,7 +146,7 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
     {
         var итог = new List<StoredCertificate>();
 
-        foreach (var с in certificates.Take(ПотолокХранилища))
+        foreach (var с in certificates)
         {
             DateTimeOffset? доПоСписку = с.ValidTo is { } дата ? new DateTimeOffset(дата.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
 

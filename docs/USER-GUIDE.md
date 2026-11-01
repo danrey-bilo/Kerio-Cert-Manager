@@ -198,7 +198,7 @@ certificate from the list (the certificate stays in Kerio), **Add** adds a name 
 certificate is installed, served, or awaiting installation.
 
 - **Install renewed certificates automatically** — turned off: renewals wait for an e-mail and the **Update** button.
-  A certificate just added to the list is installed right away anyway; only the global pause holds it.
+  A certificate just added to the list joins the install queue right away anyway; only the global pause holds it.
 - **Clean up old certificate versions** — after a successful installation the service removes *its own* previous
   versions of the same name (from KMP or installed by it) and keeps one previous version for a manual rollback.
   Certificates bought or placed by hand are never removed. An own version of a name certificate that is valid longer
@@ -221,17 +221,25 @@ The tiles at the top are both the summary and the only filter: **Servers**, **OK
 **Not from KMP**. Click a tile to filter, click it again to clear.
 
 Each server card shows the number of certificates in the store, problems, and the state of the linked KMP
-certificates. Expanded, it lists:
+certificates. Expanded, it is one list of the certificates on the server: the **default** one is at the top and
+highlighted, then the selected certificates that are not in Kerio yet, then the rest of the store. Each line shows
+*served for name*, the origin (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**,
+**Kerio built-in**), valid until and state; when a selected certificate is not OK, the reason is right under its
+state (*Awaiting installation*, *Not installed: …*).
 
-- **From Key Manager Plus** — the linked certificates: which one is the default, the current release in KMP and its
-  state (*OK*, *Awaiting installation*, *Not installed* with the reason).
-- **The store** — every certificate in Kerio: *served* (the default) and *served for name*, its origin
-  (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**, **Kerio built-in**), valid until and
-  state. Buttons appear only for certificates selected for this server. When Key Manager Plus has a newer release
-  that is not in Kerio yet, the status has the **Update** button. A selected certificate that is missing from the
-  store is listed first as *Not on the server* with the **Add** button. Both install exactly this certificate with a
-  fresh second-factor code; while it is queued, the line shows *Queued*. Certificates not selected for the server —
-  foreign or added by hand — have no button: select the name in the server settings first.
+Buttons appear only for certificates selected for this server. When Key Manager Plus has a newer release that is not
+in Kerio yet, the status has the **Update** button. A selected certificate that is missing from the store is a
+*Not on the server* line with the **Add** button. Both install exactly this certificate with a fresh second-factor
+code. Certificates not selected for the server — foreign or added by hand — have no button: select the name in the
+server settings first.
+
+**Install queue.** Certificates are installed one at a time across the whole service — Kerio restarts HTTPS after
+each change, and one at a time keeps every step visible. A server installs one certificate per sync pass; while the
+queue is not empty, the next pass starts as soon as Kerio has restarted HTTPS (about 45 seconds), not after the poll
+interval. Clicked certificates go first, in the order of the clicks; then expired, missing and soonest-expiring ones.
+Instead of the button, a queued certificate shows *Queued · #N*, the one being installed shows *Installing*, the
+server card shows the queue length, and a banner on top names what is being installed now. There is no limit on the
+number of certificates per server.
 
 ## 9. Servers
 
@@ -319,7 +327,8 @@ other than the current one).
 ## 14. Everyday operation
 
 - **A certificate is renewed in KMP.** Within one sync pass the service notices it and installs it on every server
-  that uses it (or e-mails *Awaiting manual installation* if automatic installation is off), then e-mails a report.
+  that uses it — one installation at a time, through the install queue (or e-mails *Awaiting manual installation* if
+  automatic installation is off), then e-mails a report.
 - **Update / Add.** Overview → expand the server → **Update** or **Add** under the certificate's status, with a
   fresh code — for a certificate selected for this server. Also
   installs an older release
