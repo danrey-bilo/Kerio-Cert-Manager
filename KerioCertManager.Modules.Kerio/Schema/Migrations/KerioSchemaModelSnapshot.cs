@@ -244,6 +244,10 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deploy_requested_by");
 
+                    b.Property<string>("DeployRequestedName")
+                        .HasColumnType("text")
+                        .HasColumnName("deploy_requested_name");
+
                     b.Property<string>("DryRunSerial")
                         .HasColumnType("text")
                         .HasColumnName("dry_run_serial");

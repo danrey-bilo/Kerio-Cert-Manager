@@ -173,8 +173,14 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         (await клиент.PostAsync($"{Серверы}/{id}/deploy", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         host.User.StepUpAt = DateTimeOffset.UtcNow;
-        (await клиент.PostAsync($"{Серверы}/{id}/deploy", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = "other.demo.local" }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.BadRequest, "чужое имя — не сертификат этого сервера");
+        (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта.ToUpperInvariant() }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.Accepted);
+        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"]!.GetValue<string>().ShouldBe(Почта);
         await ЦиклAsync();
+
+        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["deploy_requested_name"].ShouldBeNull("запрос погашен проходом");
 
         kerio.ServedCertificate.SerialNumber.ShouldBe(третий.Certificate.SerialNumber);
 

@@ -155,6 +155,15 @@ internal sealed class KerioServer
 
     public Guid? DeployRequestedBy { get; set; }
 
+    /// <summary>Какой сертификат ставить по кнопке; <c>null</c> — все выбранные.</summary>
+    public string? DeployRequestedName { get; set; }
+
+    /// <summary>Просил ли администратор поставить этот сертификат: все выбранные или именно его.</summary>
+    public bool ManualFor(string? commonName) =>
+        DeployRequestedAt is not null
+        && commonName is not null
+        && (DeployRequestedName is null || string.Equals(DeployRequestedName, commonName, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Аренда сервера одним проходом: двое не ставят одновременно.</summary>
     public DateTimeOffset? LeaseUntil { get; set; }
 

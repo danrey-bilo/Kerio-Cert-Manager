@@ -60,6 +60,7 @@ internal sealed record ServerOut(
     [property: JsonPropertyName("last_deploy_error")] string? LastDeployError,
     [property: JsonPropertyName("next_attempt_at")] DateTimeOffset? NextAttemptAt,
     [property: JsonPropertyName("deploy_requested_at")] DateTimeOffset? DeployRequestedAt,
+    [property: JsonPropertyName("deploy_requested_name")] string? DeployRequestedName,
     [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
     [property: JsonPropertyName("store")] IReadOnlyList<StoreCertOut> Store,
@@ -189,6 +190,9 @@ internal sealed record PasswordIn([property: JsonPropertyName("password")] strin
 {
     public override string ToString() => nameof(PasswordIn);
 }
+
+/// <summary>Какой сертификат поставить сейчас; без имени — все выбранные для сервера.</summary>
+internal sealed record DeployIn([property: JsonPropertyName("common_name")] string? CommonName);
 
 /// <summary>Как доверять сертификату Kerio.</summary>
 internal sealed record TrustIn(

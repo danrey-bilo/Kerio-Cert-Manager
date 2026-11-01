@@ -50,7 +50,7 @@ Kerio Cert Manager does it for you:
 | **Many Kerio servers** | Each with its own address, account, TLS trust, certificates from KMP, ports to verify and recipients |
 | **Default and name certificates** | One certificate per server is the *default* (served without SNI); any others are *name certificates* that Kerio serves by SNI. Names are validated against KMP before saving |
 | **Auto-install** | On a renewal in KMP, and when the certificate on the server expires soon while KMP has a longer one. A global switch and a per-server switch |
-| **Install now** | Manually, with a fresh second-factor code; the installation runs step by step right in the server card |
+| **Install now** | Next to the certificate that waits on the Overview tab, with a fresh second-factor code; the installation runs step by step in the Log |
 | **Verification and rollback** | After activation the new certificate must appear on every verified port; if it does not, the previous one is restored and verified the same way |
 | **Dry run** | Everything is checked — key, chain, Kerio sign-in, store — but Kerio is not changed. For the first days |
 | **Protection** | An older release is never installed automatically; a manual change on the server is not overwritten — only reported; certificates bought or placed by hand are never removed |
@@ -175,7 +175,7 @@ unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 kerio-cert-manager-image-vX.Y.Z.tar` from the main release archive):
 
 ```bash
-docker pull danreero/kerio_cert_manager:1.0.1
+docker pull danreero/kerio_cert_manager:1.0.2
 ```
 
 **3. Secrets.** The script creates the master encryption key and the two database passwords in `secrets/`.

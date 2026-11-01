@@ -105,6 +105,24 @@ public sealed class PlannerTests
         план.ClearManualRequest.ShouldBeTrue();
     }
 
+    /// <summary>⚠ Кнопка у сертификата своего имени не переставляет сертификат по умолчанию: Kerio перезапустил бы HTTPS зря.</summary>
+    [Fact]
+    public void Ручной_запрос_на_другое_имя_не_трогает_сертификат_по_умолчанию()
+    {
+        var с = Сервер(installed: "bb");
+        с.DeployRequestedAt = Сейчас;
+        с.DeployRequestedName = "webmail.example.com";
+
+        var план = Решить(с, Подан("bb", 90), Выпуск("bb", 90));
+
+        план.Action.ShouldBe(PlanAction.None);
+        план.ClearManualRequest.ShouldBeFalse();
+        с.ManualFor("WEBMAIL.example.com").ShouldBeTrue("имя сравнивается без учёта регистра");
+
+        с.DeployRequestedName = "MAIL.example.com";
+        Решить(с, Подан("bb", 90), Выпуск("bb", 90)).Trigger.ShouldBe(DeployTriggers.Manual);
+    }
+
     /// <summary>Тот же серийный, но другой отпечаток — не «свой»: идёт на сверку с выгрузкой KMP.</summary>
     [Fact]
     public void Тот_же_серийный_с_другим_отпечатком_не_свой()

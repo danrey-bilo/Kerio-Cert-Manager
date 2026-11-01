@@ -243,7 +243,8 @@ internal sealed class SyncCycle(
 
         предупреждения.AddRange(план.Alerts);
 
-        var ручной = сервер.DeployRequestedAt is not null;
+        var запрошено = сервер.DeployRequestedAt is not null;
+        var ручной = сервер.ManualFor(сервер.CommonName);
 
         if (план.Action == PlanAction.Adopt && проверка.Served is { } подан && план.Source is { } свой
             && await ВыпускKmpAsync(сервер, подан, свой, предупреждения, cancellationToken))
@@ -303,17 +304,19 @@ internal sealed class SyncCycle(
             }
         }
 
-        await ДопAsync(сервер, проверка, ручной, предупреждения, cancellationToken);
+        await ДопAsync(сервер, проверка, предупреждения, cancellationToken);
 
         if (Устаревший(сервер) is { } поИмени)
         {
             предупреждения.Add(поИмени);
         }
 
-        if (план.ClearManualRequest || ручной)
+        // ⚠ Запрос на одно имя тоже гасится проходом, иначе сертификат по умолчанию ставился бы каждый раз.
+        if (план.ClearManualRequest || запрошено)
         {
             сервер.DeployRequestedAt = null;
             сервер.DeployRequestedBy = null;
+            сервер.DeployRequestedName = null;
         }
 
         if (Просрочка(
@@ -435,7 +438,7 @@ internal sealed class SyncCycle(
 
     /// <summary>Сертификаты своих имён: признать лежащие, поставить недостающие, предупредить о сроках.</summary>
     private async Task ДопAsync(
-        KerioServer сервер, InspectionResult проверка, bool ручной, List<ServerAlert> предупреждения, CancellationToken cancellationToken)
+        KerioServer сервер, InspectionResult проверка, List<ServerAlert> предупреждения, CancellationToken cancellationToken)
     {
         if (сервер.Extras.Count == 0)
         {
@@ -455,6 +458,7 @@ internal sealed class SyncCycle(
                 continue;
             }
 
+            var ручной = сервер.ManualFor(доп.CommonName);
             var текущий = await source.CurrentAsync(доп.CommonName, cancellationToken);
             var план = ExtraPlanner.Plan(сервер, доп, текущий, проверка.Store is not null, авто, дней, clock.GetUtcNow(), ручной);
             var своиПредупреждения = new List<ServerAlert>(план.Alerts);
@@ -531,7 +535,7 @@ internal sealed class SyncCycle(
             : сервер.LastCheckError is { } связь
                 ? $"Сервер недоступен: {связь}"
                 : план.Alerts.Any(а => а.Kind == AlertKinds.RenewalPending)
-                    ? "Автоматическая установка выключена — нужна кнопка «Установить сейчас»."
+                    ? "Автоматическая установка выключена — нужна кнопка «Установить сейчас» во вкладке «Обзор»."
                     : "Установка пока не прошла.";
 
         var старый = сервер.Store.Where(з => ExtraPlanner.Того(з, доп.CommonName)).Max(з => з.NotAfter);
@@ -588,7 +592,7 @@ internal sealed class SyncCycle(
             : сервер.LastCheckError is { } связь
                 ? $"Сервер недоступен: {связь}"
                 : план.Alerts.Any(а => а.Kind == AlertKinds.RenewalPending)
-                    ? "Автоматическая установка выключена — нужна кнопка «Установить сейчас»."
+                    ? "Автоматическая установка выключена — нужна кнопка «Установить сейчас» во вкладке «Обзор»."
                     : "Установка пока не прошла.";
 
         var срочно = сервер.ServedNotAfter is { } до && до - now <= TimeSpan.FromDays(warningDays);

@@ -538,9 +538,17 @@ internal sealed class ServersController(
     /// <summary>Установить текущий выпуск из Key Manager Plus сейчас — вне расписания и выключателей автоустановки.</summary>
     [HttpPost("servers/{id:guid}/deploy")]
     [RequireRecentSecondFactor]
-    public async Task<IActionResult> Deploy(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Deploy(
+        Guid id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] DeployIn? body,
+        CancellationToken cancellationToken)
     {
-        var имя = (await НайтиAsync(id, tracked: false, cancellationToken)).CommonName;
+        var найден = await НайтиAsync(id, tracked: false, cancellationToken);
+        var выбран = string.IsNullOrWhiteSpace(body?.CommonName)
+            ? null
+            : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, body.CommonName.Trim(), StringComparison.OrdinalIgnoreCase))
+              ?? throw Неверно("common_name", $"Сертификат {body.CommonName.Trim()} не выбран для этого сервера.");
+        var имя = выбран ?? найден.CommonName;
 
         if (!string.IsNullOrWhiteSpace(имя) && await source.CurrentAsync(имя, cancellationToken) is null)
         {
@@ -572,6 +580,7 @@ internal sealed class ServersController(
 
                 сервер.DeployRequestedAt = clock.GetUtcNow();
                 сервер.DeployRequestedBy = current.Id;
+                сервер.DeployRequestedName = выбран;
 
                 return new AuditEntry(
                     KerioActions.DeployRequested,
@@ -582,6 +591,7 @@ internal sealed class ServersController(
                         ["server"] = сервер.Name,
                         ["common_name"] = сервер.CommonName,
                         ["extras"] = string.Join(", ", сервер.Extras.Select(д => д.CommonName)),
+                        ["requested"] = выбран,
                     });
             },
             cancellationToken,

@@ -253,7 +253,7 @@ SECOND_FACTOR_REQUIRED`, панель сама спросит код). Отка�
 | `PUT` | `/kerio/servers/{id}/trust` | Доверие TLS: `ca` (+ имя) или `pin` (+ SHA-256) | ✓ |
 | `DELETE` | `/kerio/servers/{id}` | Отключить сервер; история остаётся. Код — не старше 2 минут, на каждое удаление | ✓ |
 | `POST` | `/kerio/servers/{id}/check` | Проверить сейчас (вход — даже после отвергнутого пароля) | |
-| `POST` | `/kerio/servers/{id}/deploy` | Установить сейчас — `202`, ход в журнале | ✓ |
+| `POST` | `/kerio/servers/{id}/deploy` | Установить сейчас — `202`, ход в журнале; `{"common_name": …}` — только этот сертификат, без тела — все | ✓ |
 | `GET` | `/kerio/servers/{id}/deployments` | Установки сервера с шагами | |
 | `GET` | `/kerio/deployments?limit&before&outcome&steps` | Журнал установок; `steps=true` — сразу с шагами | |
 | `GET` | `/kerio/deployments/{id}` | Установка с шагами | |

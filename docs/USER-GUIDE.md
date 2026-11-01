@@ -223,7 +223,9 @@ Each server card shows the number of certificates in the store, problems, and th
 certificates. Expanded, it lists:
 
 - **From Key Manager Plus** — the linked certificates: which one is the default, the current release in KMP and its
-  state (*OK*, *Awaiting installation*, *Not installed* with the reason).
+  state (*OK*, *Awaiting installation*, *Not installed* with the reason). A certificate that waits — expired, awaiting
+  installation or not installed — has the **Install now** button right in its line: it installs exactly this
+  certificate with a fresh second-factor code; while it is queued the line shows *Installation queued*.
 - **The store** — every certificate in Kerio: *served* (the default) and *served for name*, its origin
   (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**, **Kerio built-in**), valid until and
   state.
@@ -239,7 +241,6 @@ certificates. Expanded, it lists:
 | ✏ **Edit** | Certificates and connection (section 7.1) |
 | 🗑 **Delete** | Stop managing the server. Asks for a fresh code every time. Nothing changes on Kerio; the installation history stays |
 | **Sync** | Run a sync pass now: KMP poll and check of every server |
-| **Install now** | In the server's edit dialog (pencil) when a renewal is waiting: install with a fresh code, step by step |
 
 ## 10. Certificates
 
@@ -316,7 +317,8 @@ other than the current one).
 
 - **A certificate is renewed in KMP.** Within one sync pass the service notices it and installs it on every server
   that uses it (or e-mails *Awaiting manual installation* if automatic installation is off), then e-mails a report.
-- **Install now.** Servers → pencil → **Install now** with a fresh code. Also installs an older release
+- **Install now.** Overview → expand the server → **Install now** next to the certificate, with a fresh code. Also
+  installs an older release
   if you decide so (the service never does this by itself).
 - **Rollback.** If the new certificate does not appear on every verified port, the previous one is restored and
   verified; the log shows **Rolled back to previous** and an e-mail explains why. The next attempt waits for a

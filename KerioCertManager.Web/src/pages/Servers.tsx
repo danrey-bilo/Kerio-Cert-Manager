@@ -266,7 +266,7 @@ function problemOf(name: string, kmp: Map<string, KmpRelease>, managed: Set<stri
 
 function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (done: boolean) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const { show, confirm, toast } = useOverlay();
+  const { show, toast } = useOverlay();
   const [tab, setTab] = useState<Tab>('ssl');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -390,19 +390,6 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
     });
   };
 
-  const deployNow = () => void guard(async () => {
-    if (names.length === 0) throw new Invalid(t('Сначала добавьте сертификаты из Key Manager Plus.'));
-    if (!await confirm(
-      t('Установить сертификаты сейчас?'),
-      <>{t('На «{0}» встанут текущие выпуски из Key Manager Plus: {1}. Сертификат по умолчанию проверяется на всех портах и при неудаче возвращается прежний; сертификаты имён кладутся в хранилище, а сертификат по умолчанию остаётся прежним.', s.name, names.join(', '))}</>,
-      t('Установить'),
-    )) return;
-    if (changed) await save();
-    await api.post(`/api/kerio/servers/${s.id}/deploy`);
-    toast(t('Установка поставлена в очередь — ход виден в «Журнале»'));
-    onClose(true);
-  });
-
   const reTrust = async () => {
     const fresh = await new Promise<KerioServer | null>(resolve => {
       void show(close => <TrustDialog server={s} onClose={updated => { close(Boolean(updated)); resolve(updated); }} />);
@@ -410,7 +397,6 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
     if (fresh) setTrust({ mode: fresh.tls_mode, pin: fresh.tls_pin_sha256, name: fresh.tls_server_name });
   };
 
-  const canDeploy = s.enabled && enabled && s.password_set && names.length > 0;
   const servedSerial = bare(s.served?.serial);
 
   return (
@@ -492,7 +478,7 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
               <div className="setting-row compact">
                 <div className="setting-label">
                   <span>{t('Ставить продлённые автоматически')}</span>
-                  <small>{t('Выключено — только письмо и кнопка «Установить сейчас».')}</small>
+                  <small>{t('Выключено — только письмо и кнопка «Установить сейчас» во вкладке «Обзор».')}</small>
                 </div>
                 <label className="switch"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /><span /></label>
               </div>
@@ -553,12 +539,7 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
         )}
 
         <ErrorText text={error} />
-        <div className="actions-row split">
-          {tab === 'ssl' && (
-            <button type="button" className="push-left" onClick={deployNow} disabled={busy || !canDeploy}
-              title={canDeploy ? t('Поставить текущие выпуски из KMP сейчас') : t('Нужны сертификаты, пароль и включённый сервер')}>
-              <Icon name="upload" />{t('Установить сейчас')}</button>
-          )}
+        <div className="actions-row">
           <button type="button" onClick={() => onClose(false)}>{t('Отмена')}</button>
           <button type="submit" className="primary" disabled={busy}>{busy ? t('Подождите…') : t('Сохранить')}</button>
         </div>

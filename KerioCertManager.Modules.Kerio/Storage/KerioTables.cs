@@ -98,6 +98,7 @@ internal sealed class KerioTables : IEntityConfigurationProvider
             строка.Property(с => с.DryRunSerial).HasColumnName("dry_run_serial").HasColumnType("text");
             строка.Property(с => с.DeployRequestedAt).HasColumnName("deploy_requested_at").HasColumnType("timestamptz");
             строка.Property(с => с.DeployRequestedBy).HasColumnName("deploy_requested_by");
+            строка.Property(с => с.DeployRequestedName).HasColumnName("deploy_requested_name").HasColumnType("text");
             строка.Property(с => с.LeaseUntil).HasColumnName("lease_until").HasColumnType("timestamptz");
             строка.Property(с => с.LeaseOwner).HasColumnName("lease_owner");
 

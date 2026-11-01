@@ -74,7 +74,7 @@ internal static class DeployPlanner
     {
         ArgumentNullException.ThrowIfNull(server);
 
-        var ручной = server.DeployRequestedAt is not null;
+        var ручной = server.ManualFor(server.CommonName);
         var предупреждения = new List<ServerAlert>();
 
         if (string.IsNullOrWhiteSpace(server.CommonName))
@@ -144,7 +144,7 @@ internal static class DeployPlanner
                 $"На «{server.Name}» стоит не тот сертификат, что установил сервис",
                 $"Сервер подаёт сертификат {served.Subject} (серийный {served.Serial}, до {Дата(served.NotAfter)}), а сервис "
                 + $"устанавливал {source.CommonName} (серийный {Fingerprints.Serial(source.SerialNumber)}). Если это не намеренно, "
-                + "нажмите «Установить сейчас» на странице сервера."));
+                + "нажмите «Установить сейчас» во вкладке «Обзор»."));
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
 
@@ -183,7 +183,7 @@ internal static class DeployPlanner
                 + (source.ExpiresOn is { } срок ? $", до {срок:dd.MM.yyyy}" : string.Empty)
                 + "), а автоматическая установка "
                 + (globalAutoDeploy ? "для этого сервера" : "во всём сервисе")
-                + " выключена. Установите его кнопкой «Установить сейчас»."));
+                + " выключена. Установите его кнопкой «Установить сейчас» во вкладке «Обзор»."));
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: true);
 

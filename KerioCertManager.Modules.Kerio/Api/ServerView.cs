@@ -88,6 +88,7 @@ internal static class ServerView
             с.LastDeployError,
             с.NextAttemptAt,
             с.DeployRequestedAt,
+            с.DeployRequestedName,
             с.CreatedAt,
             с.UpdatedAt,
             bySerial is null ? [] : Хранилище(с, bySerial, warningDays, now),

@@ -185,6 +185,7 @@ export interface KerioServer {
   last_deploy_error: string | null;
   next_attempt_at: string | null;
   deploy_requested_at: string | null;
+  deploy_requested_name: string | null;
   created_at: string;
   updated_at: string;
   store: StoreCert[];

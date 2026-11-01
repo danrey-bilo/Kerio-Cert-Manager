@@ -819,6 +819,8 @@ html[data-device="mobile"] .setting-row.rule { flex-wrap: nowrap; }
 .ov-managed-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; }
 .ov-managed-list .strong { font-weight: 600; }
 .ov-kmp-text { flex-basis: 100%; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.ov-install { margin-left: auto; }
+.ov-managed-list button.ov-install { min-height: 30px; padding: 4px 12px; font-size: 12.5px; }
 
 .cert-list { display: grid; max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
 .cert-row {

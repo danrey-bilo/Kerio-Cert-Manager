@@ -8,6 +8,7 @@ import { ago, CERT_STATE, connection, counted, daysText, daysTone, hostOf, ORIGI
 import type { KerioServer, Overview, ServerStatus, SourceCert, StoreCert } from '../lib/types';
 import { Empty, Failed, PageHead, Spinner, Status } from '../ui/bits';
 import { Icon, type IconName } from '../ui/Icon';
+import { useOverlay } from '../ui/Overlay';
 
 type Filter = 'all' | 'ok' | 'expiring' | 'expired' | 'foreign';
 
@@ -33,7 +34,7 @@ function savedOpen(): Record<string, boolean> {
   try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean>; } catch { return {}; }
 }
 
-/** Главная — только просмотр: что за сертификаты на каждом сервере Kerio, откуда они и сколько им осталось. */
+/** Главная: что за сертификаты на каждом сервере Kerio, откуда они и сколько им осталось; ждущий ставится кнопкой у него. */
 export function OverviewPage() {
   const { data, error, refresh } = useLoad(() => api.get<Overview>('/api/kerio/overview'));
   const [filter, setFilter] = useState<Filter>('all');
@@ -85,7 +86,7 @@ export function OverviewPage() {
       )}
       {!data.auto_deploy && (
         <Banner tone="warn" icon="pause" title={t('Автоматическая установка на паузе')}
-          text={t('Продлённые сертификаты ждут кнопки «Установить сейчас» в настройках сервера.')}
+          text={t('Продлённые сертификаты ждут кнопки «Установить сейчас» — она у каждого такого сертификата ниже.')}
           href="#/settings/sync" action={t('Включить')} />
       )}
 
@@ -128,7 +129,8 @@ export function OverviewPage() {
             <div className="stack tight">
               {visible.map(({ server, rows: list }) => (
                 <ServerBlock key={server.id} server={server} rows={list} all={rowsOf.get(server.id) ?? []} warning={data.warning_days}
-                  filtered={filter !== 'all'} open={isOpen(server.id)} onToggle={() => setOpen(o => ({ ...o, [server.id]: !isOpen(server.id) }))} />
+                  filtered={filter !== 'all'} open={isOpen(server.id)} onToggle={() => setOpen(o => ({ ...o, [server.id]: !isOpen(server.id) }))}
+                  onChanged={refresh} />
               ))}
             </div>
           )}
@@ -175,6 +177,9 @@ interface Managed {
   source: SourceCert | null;
 }
 
+/** Состояния, которые снимает установка текущего выпуска из KMP. */
+const NEEDS_INSTALL: ServerStatus[] = ['expired', 'deploy_failed', 'name_stale', 'update_pending'];
+
 function managedOf(s: KerioServer): Managed[] {
   return [
     ...(s.common_name ? [{ name: s.common_name, isDefault: true, status: s.status, text: s.status_text, source: s.source }] : []),
@@ -182,7 +187,7 @@ function managedOf(s: KerioServer): Managed[] {
   ];
 }
 
-function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onToggle }: {
+function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onToggle, onChanged }: {
   server: KerioServer;
   rows: Row[];
   all: Row[];
@@ -190,7 +195,10 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
   filtered: boolean;
   open: boolean;
   onToggle: () => void;
+  onChanged: () => void;
 }) {
+  const { confirm, run } = useOverlay();
+  const [installing, setInstalling] = useState(false);
   const c = connection(s);
   const tlsOnly = list.some(r => r.tlsOnly);
   const managed = managedOf(s);
@@ -200,6 +208,24 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
   const foreign = all.filter(r => r.origin === 'foreign').length;
   const worst = managed.reduce<Managed | null>((w, m) => (!w || STATUS[m.status].rank < STATUS[w.status].rank ? m : w), null);
   const bodyId = 'ov-body-' + s.id;
+
+  const queued = (name: string) => Boolean(s.deploy_requested_at)
+    && (!s.deploy_requested_name || s.deploy_requested_name.toLowerCase() === name.toLowerCase());
+  const blocked = !s.enabled ? t('Сервер отключён') : !s.password_set ? t('Не задан пароль учётной записи Kerio') : null;
+
+  const install = async (m: Managed) => {
+    if (!await confirm(
+      t('Установить {0}?', m.name),
+      m.isDefault
+        ? t('На «{0}» встанет текущий выпуск из Key Manager Plus как сертификат по умолчанию. Он проверяется на всех портах; при неудаче возвращается прежний.', s.name)
+        : t('В хранилище «{0}» ляжет текущий выпуск из Key Manager Plus — Kerio будет подавать его для этого имени. Сертификат по умолчанию не меняется.', s.name),
+      t('Установить'),
+    )) return;
+    setInstalling(true);
+    await run(() => api.post(`/api/kerio/servers/${s.id}/deploy`, { common_name: m.name }), t('Установка поставлена в очередь — ход виден в «Журнале»'));
+    setInstalling(false);
+    onChanged();
+  };
 
   const byName = new Map<string, string[]>();
   for (const m of managed) {
@@ -245,6 +271,14 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
                     {m.isDefault && <span className="badge accent">{t('по умолчанию')}</span>}
                     {m.source?.expires_on && <span className="muted small">{t('выпуск до {0}', fmtDate(m.source.expires_on))}</span>}
                     <span className={'pill-status ' + STATUS[m.status].tone} title={m.text}>{STATUS[m.status].label}</span>
+                    {queued(m.name) ? (
+                      <span className="badge accent ov-install">{t('Установка в очереди')}</span>
+                    ) : m.source && NEEDS_INSTALL.includes(m.status) && (
+                      <button type="button" className="primary ov-install" disabled={installing || blocked !== null}
+                        title={blocked ?? t('Поставить текущий выпуск из Key Manager Plus сейчас')} onClick={() => void install(m)}>
+                        <Icon name="upload" />{t('Установить сейчас')}
+                      </button>
+                    )}
                     {STATUS[m.status].rank <= 4 && m.status !== 'unchecked' && <span className="ov-kmp-text">{m.text}</span>}
                   </li>
                 ))}
