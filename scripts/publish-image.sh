@@ -31,4 +31,4 @@ fi
 
 "${build[@]}" --sbom=true --provenance=mode=max --push "${tags[@]}"
 
-echo "Опубликовано: ${tags[*]}"
+echo "Опубликовано: ${tags[*]/#-t/}" | tr -s " "
