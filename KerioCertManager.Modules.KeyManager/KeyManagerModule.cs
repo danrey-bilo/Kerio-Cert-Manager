@@ -62,6 +62,15 @@ public static class KeyManagerModule
         services.TryAddSingleton<SourceWakeup>();
 
         const string модуль = "keymanager";
+
+        // ⚠ Проверка и опрос открывают соединение к KMP по запросу человека.
+        services.AddRateLimitRule(new RateLimitRule(
+            модуль,
+            RateLimitClasses.Sync,
+            "/api/keymanager/test, /api/keymanager/poll",
+            path => path.Equals("/api/keymanager/test", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/keymanager/poll", StringComparison.OrdinalIgnoreCase)));
+
         services.Require<ISettingsReader>(модуль, "адрес Key Manager Plus и срок опроса некому прочитать");
         services.Require<ISecretEnvelope>(модуль, "ключ API Key Manager Plus нечем запечатать");
 

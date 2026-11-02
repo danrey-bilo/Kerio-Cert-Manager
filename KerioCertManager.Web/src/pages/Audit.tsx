@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { api, Cancelled, errorText } from '../lib/api';
+import { useState } from 'react';
+import { api } from '../lib/api';
 import { fmtDateTime } from '../lib/format';
-import { useLoad } from '../lib/hooks';
+import { useLoad, usePagedList } from '../lib/hooks';
 import { t } from '../lib/i18n';
-import { Empty, Failed, PageHead, Spinner, Status } from '../ui/bits';
+import { Empty, ErrorText, Failed, PageHead, Spinner, Status } from '../ui/bits';
 import { Icon } from '../ui/Icon';
 import { useOverlay } from '../ui/Overlay';
 
@@ -33,30 +33,15 @@ const ACTOR: Record<string, string> = { user: t('Пользователь'), sys
 export function AuditPage() {
   const catalog = useLoad(() => api.get<AuditActions>('/api/audit/actions'));
   const [module, setModule] = useState('');
-  const [items, setItems] = useState<AuditEntry[] | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const { run } = useOverlay();
 
-  const load = async (from: string | null, replace: boolean) => {
-    setLoading(true);
-    try {
-      const query = new URLSearchParams({ limit: '50' });
-      if (module) query.set('module', module);
-      if (from) query.set('cursor', from);
-      const page = await api.get<AuditPage>('/api/audit?' + query.toString());
-      setItems(list => (replace || !list ? page.items : [...list, ...page.items]));
-      setCursor(page.next_cursor);
-      setError('');
-    } catch (err) {
-      if (!(err instanceof Cancelled)) setError(errorText(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { void load(null, true); }, [module]);
+  const { items, error, loading, hasMore, loadMore } = usePagedList(async cursor => {
+    const query = new URLSearchParams({ limit: '50' });
+    if (module) query.set('module', module);
+    if (cursor) query.set('cursor', cursor);
+    const page = await api.get<AuditPage>('/api/audit?' + query.toString());
+    return { items: page.items, next: page.next_cursor };
+  }, (e: AuditEntry) => e.id, module);
 
   const exportCsv = () => run(
     () => api.download('/api/audit/export?format=csv' + (module ? '&module=' + encodeURIComponent(module) : ''), {}, 'audit.csv'),
@@ -68,9 +53,10 @@ export function AuditPage() {
   return (
     <>
       <PageHead title={t('Журнал действий')} sub={t('Кто, что и когда сделал. Журнал только дописывается и держится цепочкой хешей')}>
-        <button onClick={() => void exportCsv()}><Icon name="download" />{t('Выгрузить CSV')}</button>
+        <button type="button" onClick={() => void exportCsv()}><Icon name="download" />{t('Выгрузить CSV')}</button>
       </PageHead>
 
+      <ErrorText text={catalog.error} />
       <div className="pills">
         <button type="button" className={'pill' + (module === '' ? ' active' : '')} onClick={() => setModule('')}>{t('Все')}</button>
         {catalog.data?.groups.map(g => (
@@ -80,7 +66,7 @@ export function AuditPage() {
         ))}
       </div>
 
-      {error ? <Failed text={error} /> : !items ? <Spinner /> : items.length === 0 ? (
+      {!items ? (error ? <Failed text={error} /> : <Spinner />) : items.length === 0 ? (
         <div className="card"><Empty title={t('Записей нет')} /></div>
       ) : (
         <div className="card flush">
@@ -110,9 +96,10 @@ export function AuditPage() {
               </li>
             ))}
           </ul>
-          {cursor && (
+          <ErrorText text={error} />
+          {hasMore && (
             <div className="load-more">
-              <button type="button" disabled={loading} onClick={() => void load(cursor, false)}>{loading ? t('Загрузка…') : t('Показать ещё')}</button>
+              <button type="button" disabled={loading} onClick={loadMore}>{loading ? t('Загрузка…') : t('Показать ещё')}</button>
             </div>
           )}
         </div>

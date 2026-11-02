@@ -148,10 +148,10 @@ internal sealed partial class KerioDeployer(
 
             await Отметить(
                 DeploySteps.Validate,
-                $"Сертификат {пара.Subject} от {пара.Issuer}, до {пара.NotAfter:yyyy-MM-dd}, SHA-256 {Fingerprints.Pretty(пара.Sha256)}; "
+                $"Сертификат {пара.Subject} от {пара.Issuer}, до {пара.NotAfter:yyyy-MM-dd}, SHA-256 {Fingerprints.Pretty(пара.Sha256)}."
                 + (пара.Intermediates.Count > 0
-                    ? $"промежуточных в цепочке: {пара.Intermediates.Count}."
-                    : "промежуточных в цепочке нет.")
+                    ? $" Промежуточных в цепочке: {пара.Intermediates.Count}."
+                    : " Промежуточных в цепочке нет.")
                 + (пара.ChainComplete ? string.Empty : " ⚠ Цепочка до корня не собрана — клиенты могут не доверять серверу."),
                 ok: true);
 
@@ -183,9 +183,9 @@ internal sealed partial class KerioDeployer(
 
             await Отметить(
                 DeploySteps.Inventory,
-                $"В хранилище Kerio сертификатов: {хранилище.Count}. Сейчас подаётся "
-                + (прежний is null ? "сертификат, которого нет в хранилище (встроенный или неизвестный)" : $"«{прежний}»")
-                + (уже is null ? "." : $"; новый уже в хранилище как «{уже}»."));
+                $"В хранилище Kerio сертификатов: {хранилище.Count}."
+                + (прежний is null ? " Подаётся сертификат, которого нет в хранилище (встроенный или неизвестный)." : $" Сейчас подаётся «{прежний}».")
+                + (уже is null ? string.Empty : $" Новый уже в хранилище как «{уже}»."));
 
             if (request.RequireRollbackTarget && прежнийSha is not null && прежний is null
                 && !string.Equals(прежнийSha, пара.Sha256, StringComparison.Ordinal))
@@ -540,12 +540,12 @@ internal sealed partial class KerioDeployer(
                     var подан = serverName is null
                         ? await tls.InspectAsync(хост, порт, cancellationToken)
                         : await tls.InspectAsync(хост, порт, serverName, cancellationToken);
-                    последнее[порт] = подан.Sha256 == sha256 ? "новый" : $"{подан.Subject} до {подан.NotAfter:yyyy-MM-dd}";
+                    последнее[порт] = подан.Sha256 == sha256 ? $"Порт {порт} подаёт новый." : $"Порт {порт} подаёт {подан.Subject} до {подан.NotAfter:yyyy-MM-dd}.";
                     все &= подан.Sha256 == sha256;
                 }
                 catch (TlsException ошибка)
                 {
-                    последнее[порт] = ошибка.Message;
+                    последнее[порт] = $"Порт {порт}: {ошибка.Message}";
                     все = false;
                 }
             }
@@ -557,8 +557,7 @@ internal sealed partial class KerioDeployer(
 
             if (clock.GetUtcNow() >= до)
             {
-                return $"За {срок.TotalSeconds:0} с сервер не начал подавать новый сертификат: "
-                    + string.Join("; ", последнее.Select(п => $"порт {п.Key} — {п.Value}")) + ".";
+                return $"За {срок.TotalSeconds:0} с сервер не начал подавать новый сертификат. " + string.Join(' ', последнее.Values);
             }
 
             await Task.Delay(ШагПроверки, clock, cancellationToken);

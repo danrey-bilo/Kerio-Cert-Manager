@@ -16,6 +16,9 @@ internal sealed class CertificateSource(
     TimeProvider clock,
     ILogger<CertificateSource> log) : ICertificateSource
 {
+    private const string ПустойОтвет =
+        "Key Manager Plus вернул пустой список сертификатов — последний удачный опрос остаётся в силе. Проверьте права ключа API.";
+
     public async Task<SourceRefresh> RefreshAsync(CancellationToken cancellationToken = default)
     {
         var настройки = await connector.ReadAsync(cancellationToken);
@@ -29,11 +32,21 @@ internal sealed class CertificateSource(
         {
             using var клиент = await connector.OpenAsync(cancellationToken);
 
-            var снимок = await snapshots.TakeAsync(клиент, cancellationToken);
+            var сколько = await snapshots.TakeAsync(клиент, cancellationToken);
 
-            await ОтметитьAsync(снимок.Certificates.Count, null);
+            // ⚠ Пустой ответ при знакомых сертификатах — это сбой KMP или прав ключа, а не «сертификатов больше нет»:
+            // снимок остаётся, но администратор видит причину.
+            if (сколько == 0 && await db.Set<KnownCertificate>().AnyAsync(cancellationToken))
+            {
+                await ОтметитьAsync(0, ПустойОтвет);
+                log.LogWarning("keymanager_poll_empty");
 
-            return new SourceRefresh(true, true, снимок.Certificates.Count, null);
+                return new SourceRefresh(true, false, 0, ПустойОтвет);
+            }
+
+            await ОтметитьAsync(сколько, null);
+
+            return new SourceRefresh(true, true, сколько, null);
         }
         catch (Exception ошибка) when (!(ошибка is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
@@ -45,6 +58,9 @@ internal sealed class CertificateSource(
             return new SourceRefresh(true, false, 0, текст);
         }
     }
+
+    public async Task<bool> AvailableAsync(CancellationToken cancellationToken = default) =>
+        (await connector.ReadAsync(cancellationToken)).Configured;
 
     public async Task<IReadOnlyList<SourceCertificate>> ListAsync(CancellationToken cancellationToken = default) =>
         await CertificateSnapshots.Current(db)
@@ -66,16 +82,24 @@ internal sealed class CertificateSource(
             .Select(с => new SourceCertificate(с.CommonName, с.SerialNumber, с.ExpiresOn, с.FirstSeenAt, с.LastSeenAt))
             .ToListAsync(cancellationToken);
 
-        return Текущий(выпуски);
+        return SourceReleases.Pick(выпуски);
     }
 
-    /// <summary>Замеченный позже всех; при равенстве — дольше действующий, затем больший серийный.</summary>
-    internal static SourceCertificate? Текущий(IEnumerable<SourceCertificate> выпуски) =>
-        выпуски
-            .OrderByDescending(с => с.FirstSeenAt)
-            .ThenByDescending(с => с.ExpiresOn ?? DateOnly.MinValue)
-            .ThenByDescending(с => с.SerialNumber, StringComparer.Ordinal)
-            .FirstOrDefault();
+    /// <summary>Выпуск из снимка; интеграция выключена — ключи и сертификаты не выгружаются.</summary>
+    private async Task<KnownCertificate> ВыпускAsync(string commonName, string serialNumber, CancellationToken cancellationToken)
+    {
+        if (!await AvailableAsync(cancellationToken))
+        {
+            throw new CertificateSourceException("Key Manager Plus выключен в настройках.");
+        }
+
+        return await CertificateSnapshots.Current(db)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(с => с.CommonName == commonName && с.SerialNumber == serialNumber, cancellationToken)
+            ?? throw new CertificateSourceException(
+                $"Сертификата {commonName} с серийным номером {serialNumber} нет среди тех, что видел последний опрос "
+                + "Key Manager Plus.");
+    }
 
     public async Task<CertificateMaterial> FetchAsync(
         string commonName, string serialNumber, CancellationToken cancellationToken = default)
@@ -83,12 +107,7 @@ internal sealed class CertificateSource(
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
         ArgumentException.ThrowIfNullOrWhiteSpace(serialNumber);
 
-        var выпуск = await CertificateSnapshots.Current(db)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(с => с.CommonName == commonName && с.SerialNumber == serialNumber, cancellationToken)
-            ?? throw new CertificateSourceException(
-                $"Сертификата {commonName} с серийным номером {serialNumber} нет среди тех, что видел последний опрос "
-                + "Key Manager Plus.");
+        var выпуск = await ВыпускAsync(commonName, serialNumber, cancellationToken);
 
         IKeyManagerClient клиент;
 
@@ -157,12 +176,7 @@ internal sealed class CertificateSource(
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
         ArgumentException.ThrowIfNullOrWhiteSpace(serialNumber);
 
-        var выпуск = await CertificateSnapshots.Current(db)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(с => с.CommonName == commonName && с.SerialNumber == serialNumber, cancellationToken)
-            ?? throw new CertificateSourceException(
-                $"Сертификата {commonName} с серийным номером {serialNumber} нет среди тех, что видел последний опрос "
-                + "Key Manager Plus.");
+        var выпуск = await ВыпускAsync(commonName, serialNumber, cancellationToken);
 
         try
         {

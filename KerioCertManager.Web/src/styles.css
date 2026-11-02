@@ -721,7 +721,6 @@ dialog .setting-row.compact:first-child { border-top: 0; }
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--hover);
 }
-.actions-row.split .push-left { margin-right: auto; }
 
 .kpis.five { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 18px; }
 button.kpi {
@@ -780,7 +779,6 @@ html[data-device="mobile"] .dialog-tabs button { min-height: 40px; }
 html[data-device="mobile"] .pick-badges { width: 100%; justify-content: flex-start; padding-left: 29px; }
 html[data-device="mobile"] .trust-line { flex-wrap: wrap; }
 html[data-device="mobile"] .trust-line button { width: 100%; }
-html[data-device="mobile"] .actions-row.split .push-left { flex-basis: 100%; margin-right: 0; }
 html[data-device="mobile"] .rule-params { padding-left: 0; }
 html[data-device="mobile"] .param { width: 100%; justify-content: space-between; }
 html[data-device="mobile"] .per-server-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }

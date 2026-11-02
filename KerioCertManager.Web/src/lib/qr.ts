@@ -250,7 +250,7 @@ function penalty(m: Matrix): number {
 }
 
 /** Матрица модулей QR для текста; null — текст не помещается в версию 15. */
-export function qrMatrix(text: string): Matrix | null {
+function qrMatrix(text: string): Matrix | null {
   const bytes = Array.from(new TextEncoder().encode(text));
   for (let ver = 1; ver <= MAX_VERSION; ver++) {
     const needed = 4 + (ver < 10 ? 8 : 16) + bytes.length * 8;

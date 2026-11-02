@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Образ в Docker Hub: проверка уязвимостей, затем публикация с SBOM и происхождением — теги X.Y.Z, X.Y, latest.
+# Образ в Docker Hub: проверка уязвимостей, затем публикация с SBOM и происхождением — тег X.Y.Z; самая новая в ветке X.Y — ещё X.Y, самая новая вообще — latest.
 #   docker login && ./scripts/publish-image.sh 1.0.1
 set -euo pipefail
 
@@ -18,7 +18,17 @@ else
     echo "⚠ Docker Scout не установлен — проверка уязвимостей пропущена, её сделает релиз в GitHub." >&2
 fi
 
-"${build[@]}" --sbom=true --provenance=mode=max --push \
-    -t "$image:$version" -t "$image:${version%.*}" -t "$image:latest"
+tags=(-t "$image:$version")
+newest() { { echo "$version"; git -C "$root" tag --list "$1" | sed 's/^v//'; } | sort -V | tail -n 1; }
 
-echo "Опубликовано: $image:$version, ${version%.*}, latest"
+if [[ "$(newest "v${version%.*}.*")" == "$version" ]]; then
+    tags+=(-t "$image:${version%.*}")
+fi
+
+if [[ "$(newest 'v[0-9]*')" == "$version" ]]; then
+    tags+=(-t "$image:latest")
+fi
+
+"${build[@]}" --sbom=true --provenance=mode=max --push "${tags[@]}"
+
+echo "Опубликовано: ${tags[*]}"

@@ -32,7 +32,7 @@ public sealed class AddressTrustTests
     [InlineData("*.example.com", "example.com", false)]
     [InlineData("webmail.example.com", "mail.example.com", false)]
     public void Сертификат_имени_доверен_только_для_своего_имени(string сертификат, string узел, bool покрывает) =>
-        Client.KerioConnector.Покрывает(сертификат, узел).ShouldBe(покрывает);
+        Certificates.Fingerprints.NameCovers(сертификат, узел).ShouldBe(покрывает);
 }
 
 /// <summary>Доверие к сертификату Kerio: по соединению уходит пароль администратора.</summary>

@@ -45,7 +45,7 @@ internal static class MasterKeyFile
     {
         var (content, origin, fromEnvironment) = Content(configuration);
 
-        if (content.Trim() == DemoKey && !string.Equals(configuration[DemoMode], "true", StringComparison.OrdinalIgnoreCase))
+        if (ЕстьДемоКлюч(content) && !string.Equals(configuration[DemoMode], "true", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 $"Мастер-ключ — опубликованный ключ демо-стенда: им расшифровал бы ваши секреты кто угодно. "
@@ -54,6 +54,13 @@ internal static class MasterKeyFile
 
         return new MasterKeySource(MasterKeyRing.Parse(content, Hint), origin, fromEnvironment);
     }
+
+    /// <summary>Демо-ключ на любой строке и под любой версией: версия ключа его не делает тайным.</summary>
+    private static bool ЕстьДемоКлюч(string content) =>
+        content.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(строка => string.Equals(Значение(строка), Значение(DemoKey), StringComparison.Ordinal));
+
+    private static string Значение(string строка) => строка[(строка.IndexOf(':', StringComparison.Ordinal) + 1)..];
 
     private const string Hint = $"{FileKey} (создать: ./scripts/gen-secrets.sh)";
 

@@ -4,7 +4,7 @@ import { isMobile } from '../lib/device';
 import { useLoad } from '../lib/hooks';
 import { loadSettings, saveSettings, type Settings } from '../lib/settings';
 import type { Me } from '../lib/types';
-import { ErrorText, Failed, PageHead, Spinner } from '../ui/bits';
+import { Banner, ErrorText, Failed, PageHead, Spinner, Switch } from '../ui/bits';
 import { Icon, type IconName } from '../ui/Icon';
 import { useOverlay } from '../ui/Overlay';
 import { StepUpDialog } from '../ui/StepUp';
@@ -143,14 +143,11 @@ function SecurityForm({ settings, me, onSaved }: { settings: Settings; me: Me; o
     <>
       <PageHead title={t('Безопасность')} sub={t('Вход, сессии и пароли. Изменения подтверждаются кодом из приложения.')} />
 
-      <section className={'banner' + (fresh ? ' ok' : '')}>
-        <span className="banner-icon"><Icon name={fresh ? 'check' : 'lock'} /></span>
-        <div className="banner-text">
-          <b>{fresh && until ? t('Код подтверждён до {0}', TIME.format(until)) : t('Важные действия спросят код')}</b>
-          <span>{t('Скачивание сертификатов и ключей, установка на Kerio, изменения серверов, настроек и людей.')}</span>
-        </div>
-        {!fresh && <button onClick={confirmNow}>{t('Подтвердить')}</button>}
-      </section>
+      <Banner tone={fresh ? 'ok' : ''} icon={fresh ? 'check' : 'lock'}
+        title={fresh && until ? t('Код подтверждён до {0}', TIME.format(until)) : t('Важные действия спросят код')}
+        text={t('Скачивание сертификатов и ключей, установка на Kerio, изменения серверов, настроек и людей.')}>
+        {!fresh && <button type="button" onClick={confirmNow}>{t('Подтвердить')}</button>}
+      </Banner>
 
       <div className="settings-layout">
         {!isMobile && (
@@ -178,16 +175,7 @@ function SecurityForm({ settings, me, onSaved }: { settings: Settings; me: Me; o
                       {item.hint && <small>{item.hint}</small>}
                     </div>
                     {typeof meta.value === 'boolean' ? (
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          role="switch"
-                          aria-label={item.label}
-                          checked={value === true}
-                          onChange={e => setValues(v => ({ ...v, [item.key]: e.target.checked }))}
-                        />
-                        <span />
-                      </label>
+                      <Switch label={item.label} checked={value === true} onChange={on => setValues(v => ({ ...v, [item.key]: on }))} />
                     ) : (
                       <div className="unit-input">
                         <input

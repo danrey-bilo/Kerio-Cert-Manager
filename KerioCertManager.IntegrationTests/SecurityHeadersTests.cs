@@ -70,9 +70,12 @@ public sealed class SecurityHeadersTests(KerioCertManagerHost host)
         var поHttp = await host.CreateClient().GetAsync("/api/health", Ct);
         поHttp.Headers.Contains("Strict-Transport-Security").ShouldBeFalse();
 
-        var клиент = host.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        var клиент = host.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://kcm.example") });
         var поHttps = await клиент.GetAsync("/api/health", Ct);
 
         поHttps.Headers.GetValues("Strict-Transport-Security").Single().ShouldStartWith("max-age=31536000");
+
+        var свой = host.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        (await свой.GetAsync("/api/health", Ct)).Headers.Contains("Strict-Transport-Security").ShouldBeFalse();
     }
 }

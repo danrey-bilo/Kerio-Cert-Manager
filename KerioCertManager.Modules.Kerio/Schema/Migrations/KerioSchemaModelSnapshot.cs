@@ -290,6 +290,10 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                         .HasColumnType("bytea")
                         .HasColumnName("data_key");
 
+                    b.Property<DateTimeOffset?>("DefaultSelectedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("default_selected_at");
+
                     b.Property<int>("DeployFailures")
                         .HasColumnType("integer")
                         .HasColumnName("deploy_failures");
@@ -450,6 +454,10 @@ namespace KerioCertManager.Modules.Kerio.Schema.Migrations
                     b.Property<DateTimeOffset?>("StoreCheckedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("store_checked_at");
+
+                    b.Property<int>("TlsFailures")
+                        .HasColumnType("integer")
+                        .HasColumnName("tls_failures");
 
                     b.Property<string>("TlsMode")
                         .IsRequired()

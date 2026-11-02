@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Text.Unicode;
 using KerioCertManager.Modules.Kerio.Localization;
 using Microsoft.Net.Http.Headers;
@@ -15,6 +16,9 @@ internal sealed class ServerTextTranslation(RequestDelegate next, ServerTexts te
     private const int Потолок = 4 * 1024 * 1024;
 
     private const int ПамятьОтветов = 64;
+
+    /// <summary>Большие ответы не запоминаются: 64 по 4 МиБ — четверть памяти контейнера.</summary>
+    private const int ПотолокПамяти = 256 * 1024;
 
     /// <summary>Сколько перевод может занять на один ответ; дальше строки остаются как есть.</summary>
     private static readonly TimeSpan Бюджет = TimeSpan.FromMilliseconds(200);
@@ -102,7 +106,23 @@ internal sealed class ServerTextTranslation(RequestDelegate next, ServerTexts te
         }
 
         var часы = System.Diagnostics.Stopwatch.StartNew();
-        var итог = узел is not null && Обойти(узел, null, язык, часы) ? JsonSerializer.SerializeToUtf8Bytes(узел, Запись) : json.ToArray();
+        byte[] итог;
+
+        try
+        {
+            итог = узел is not null && Обойти(узел, null, язык, часы) ? JsonSerializer.SerializeToUtf8Bytes(узел, Запись) : json.ToArray();
+        }
+        catch (Exception ошибка) when (ошибка is RegexMatchTimeoutException or InvalidOperationException or JsonException)
+        {
+            // ⚠ Перевод — удобство: сломался он — ответ уходит как есть.
+            return null;
+        }
+
+        // ⚠ Вышли за бюджет — перевод частичный: помнить его нельзя.
+        if (часы.Elapsed > Бюджет || итог.Length > ПотолокПамяти)
+        {
+            return итог;
+        }
 
         if (_переведённые.Count >= ПамятьОтветов)
         {
@@ -188,13 +208,14 @@ internal sealed class ServerTextTranslation(RequestDelegate next, ServerTexts te
 
         public override bool CanRead => false;
 
-        public override bool CanSeek => false;
+        /// <summary>⚠ <c>Response.Clear()</c> сбрасывает тело только у потока с перемоткой: иначе ошибка допишется к обрывку ответа.</summary>
+        public override bool CanSeek => Buffered;
 
         public override bool CanWrite => true;
 
-        public override long Length => throw new NotSupportedException();
+        public override long Length => _память?.Length ?? 0;
 
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override long Position { get => Length; set => throw new NotSupportedException(); }
 
         public override void Write(byte[] buffer, int offset, int count) =>
             WriteAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
@@ -233,7 +254,18 @@ internal sealed class ServerTextTranslation(RequestDelegate next, ServerTexts te
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
-        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void SetLength(long value)
+        {
+            if (value != 0 || !Buffered)
+            {
+                throw new NotSupportedException();
+            }
+
+            // ⚠ Ответ начинается заново — и его тип может быть другим.
+            _память!.Dispose();
+            _память = null;
+            _решено = false;
+        }
 
         public override ValueTask DisposeAsync()
         {

@@ -175,7 +175,6 @@ internal sealed record ServerPatch(
     [property: JsonPropertyName("username")] string? Username,
     [property: JsonPropertyName("password")] string? Password,
     [property: JsonPropertyName("common_name")] string? CommonName,
-    [property: JsonPropertyName("clear_common_name")] bool? ClearCommonName,
     [property: JsonPropertyName("auto_deploy")] bool? AutoDeploy,
     [property: JsonPropertyName("cleanup_old")] bool? CleanupOld,
     [property: JsonPropertyName("verify_ports")] int[]? VerifyPorts,
@@ -183,14 +182,13 @@ internal sealed record ServerPatch(
     [property: JsonPropertyName("enabled")] bool? Enabled,
     [property: JsonPropertyName("extra_common_names")] string[]? ExtraCommonNames = null)
 {
+    /// <summary>Правятся только адреса оповещений: проход их не трогает.</summary>
+    public bool OnlyNotifyEmails =>
+        NotifyEmails is not null && Name is null && BaseUrl is null && Username is null && Password is null && CommonName is null
+        && AutoDeploy is null && CleanupOld is null && VerifyPorts is null && Enabled is null && ExtraCommonNames is null;
+
     /// <summary>⚠ Без пароля.</summary>
     public override string ToString() => $"{nameof(ServerPatch)} {Name} {BaseUrl}";
-}
-
-/// <summary>Новый пароль учётной записи Kerio.</summary>
-internal sealed record PasswordIn([property: JsonPropertyName("password")] string? Password)
-{
-    public override string ToString() => nameof(PasswordIn);
 }
 
 /// <summary>Какой сертификат поставить сейчас; без имени — все выбранные для сервера.</summary>
@@ -225,9 +223,8 @@ internal sealed record ProbeOut(
     [property: JsonPropertyName("same_certificate_ports")] IReadOnlyList<int> SameCertificatePorts,
     [property: JsonPropertyName("pem")] string Pem);
 
-/// <summary>Проверка входа до сохранения или с сохранённым паролем (<c>server_id</c>).</summary>
+/// <summary>Проверка входа до сохранения: подключённый сервер проверяет <c>POST servers/{id}/check</c>.</summary>
 internal sealed record TestIn(
-    [property: JsonPropertyName("server_id")] Guid? ServerId,
     [property: JsonPropertyName("base_url")] string? BaseUrl,
     [property: JsonPropertyName("username")] string? Username,
     [property: JsonPropertyName("password")] string? Password,
@@ -254,7 +251,6 @@ internal sealed record TestOut(
     [property: JsonPropertyName("version")] string? Version,
     [property: JsonPropertyName("login_name")] string? LoginName,
     [property: JsonPropertyName("role")] string? Role,
-    [property: JsonPropertyName("full_admin")] bool FullAdmin,
     [property: JsonPropertyName("certificates")] IReadOnlyList<KerioCertificateOut> Certificates,
     [property: JsonPropertyName("suggested_common_names")] IReadOnlyList<string> SuggestedCommonNames);
 

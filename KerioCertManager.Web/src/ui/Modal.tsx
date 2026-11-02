@@ -49,7 +49,7 @@ export function FormModal({
   };
 
   return (
-    <dialog ref={ref} className={wide ? 'wide' : undefined} onCancel={e => { e.preventDefault(); onClose(false); }}>
+    <dialog ref={ref} className={wide ? 'wide' : undefined} aria-label={title} onCancel={e => { e.preventDefault(); onClose(false); }}>
       <form noValidate onSubmit={handle}>
         <div>
           <h2>{title}</h2>

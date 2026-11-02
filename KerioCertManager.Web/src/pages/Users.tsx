@@ -106,7 +106,7 @@ export function UsersPage({ myId }: { myId: string }) {
   return (
     <>
       <PageHead title={t('Пользователи')} sub={t('Каждый пользователь — администратор')}>
-        <button className="primary" onClick={invite}><Icon name="plus" />{t('Пригласить')}</button>
+        <button type="button" className="primary" onClick={invite}><Icon name="plus" />{t('Пригласить')}</button>
       </PageHead>
       <div className="card flush">
         {isMobile ? (
@@ -127,7 +127,7 @@ export function UsersPage({ myId }: { myId: string }) {
         ) : (
           <table>
             <thead>
-              <tr><th>{t('Пользователь')}</th><th>{t('Статус')}</th><th>{t('Второй фактор')}</th><th /></tr>
+              <tr><th>{t('Пользователь')}</th><th>{t('Статус')}</th><th>{t('Второй фактор')}</th><th aria-label={t('Действия')} /></tr>
             </thead>
             <tbody>
               {data.map(u => {

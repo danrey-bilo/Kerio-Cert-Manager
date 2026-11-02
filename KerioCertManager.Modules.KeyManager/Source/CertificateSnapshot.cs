@@ -5,31 +5,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KerioCertManager.Modules.KeyManager.Source;
 
-/// <summary>Список сертификатов Key Manager Plus на момент запроса и когда каждый замечен впервые.</summary>
-internal sealed class CertificateSnapshot(
-    IReadOnlyList<KmpCertificate> certificates,
-    IReadOnlyDictionary<(string CommonName, string Serial), DateTimeOffset> firstSeen,
-    DateTimeOffset fetchedAt)
-{
-    public IReadOnlyList<KmpCertificate> Certificates { get; } = certificates;
-
-    /// <summary>Когда список запрошен; отправка позже значит, что снимок устарел.</summary>
-    public DateTimeOffset FetchedAt { get; } = fetchedAt;
-
-    /// <summary>Снимок без истории — для проверок, где «впервые» не важно.</summary>
-    public static CertificateSnapshot Of(IReadOnlyList<KmpCertificate> certificates, DateTimeOffset fetchedAt) =>
-        new(certificates, new Dictionary<(string, string), DateTimeOffset>(), fetchedAt);
-
-    /// <summary>Текущий сертификат Common Name или <c>null</c>, если такого нет.</summary>
-    public KmpCertificate? Current(string commonName) =>
-        Certificates
-            .Where(с => string.Equals(с.CommonName, commonName, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(с => firstSeen.GetValueOrDefault((с.CommonName, с.SerialNumber), FetchedAt))
-            .ThenByDescending(с => с.ExpiresOn ?? DateOnly.MinValue)
-            .ThenByDescending(с => с.SerialNumber, StringComparer.Ordinal)
-            .FirstOrDefault();
-}
-
 /// <summary>Запросить список у Key Manager Plus, запомнить его и вернуть снимок.</summary>
 internal sealed class CertificateSnapshots(AppDbContext db, TimeProvider clock)
 {
@@ -41,7 +16,8 @@ internal sealed class CertificateSnapshots(AppDbContext db, TimeProvider clock)
         db.Set<KnownCertificate>().Where(с =>
             с.LastSeenAt >= db.Set<KnownCertificate>().Max(в => в.LastSeenAt));
 
-    public async Task<CertificateSnapshot> TakeAsync(IKeyManagerClient client, CancellationToken cancellationToken = default)
+    /// <summary>Запросить список и запомнить его; пустой ответ снимок не трогает. Вернуть, сколько сертификатов отдал KMP.</summary>
+    public async Task<int> TakeAsync(IKeyManagerClient client, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(client);
 
@@ -49,20 +25,12 @@ internal sealed class CertificateSnapshots(AppDbContext db, TimeProvider clock)
         var когда = clock.GetUtcNow();
         var список = await client.ListAsync(cancellationToken);
 
-        await ЗапомнитьAsync(список, когда, cancellationToken);
+        if (список.Count > 0)
+        {
+            await ЗапомнитьAsync(список, когда, cancellationToken);
+        }
 
-        var имена = список.Select(с => с.CommonName).Distinct(StringComparer.Ordinal).ToArray();
-
-        var впервые = await db.Set<KnownCertificate>()
-            .AsNoTracking()
-            .Where(с => имена.Contains(с.CommonName))
-            .Select(с => new { с.CommonName, с.SerialNumber, с.FirstSeenAt })
-            .ToListAsync(cancellationToken);
-
-        return new CertificateSnapshot(
-            список,
-            впервые.ToDictionary(с => (с.CommonName, с.SerialNumber), с => с.FirstSeenAt),
-            когда);
+        return список.Count;
     }
 
     /// <summary>Новые пары добавить, виденные — отметить.</summary>

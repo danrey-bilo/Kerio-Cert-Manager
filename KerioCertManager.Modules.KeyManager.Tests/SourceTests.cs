@@ -63,6 +63,35 @@ public sealed class SourceTests(KeyManagerDatabase база) : IAsyncLifetime
         итог.Error.ShouldNotBeNull().ShouldContain("недоступен");
     }
 
+    /// <summary>⚠ KMP вдруг отдал пусто при известных сертификатах: это сбой, а не «все пропали» — снимок остаётся.</summary>
+    [Fact]
+    public async Task Пустой_ответ_при_известных_сертификатах_сбой()
+    {
+        база.Kmp.Сертификаты.Add(new KmpCertificate("mail.example.com", "AA01", new DateOnly(2027, 1, 1)));
+        await Источник(i => i.RefreshAsync(Ct));
+
+        база.Kmp.Сертификаты.Clear();
+        var итог = await Источник(i => i.RefreshAsync(Ct));
+
+        итог.Succeeded.ShouldBeFalse();
+        итог.Error.ShouldNotBeNullOrEmpty();
+        (await Источник(i => i.ListAsync(Ct))).ShouldHaveSingleItem().CommonName.ShouldBe("mail.example.com");
+    }
+
+    /// <summary>⚠ Выключенный источник ничего не отдаёт на установку, даже из старого снимка.</summary>
+    [Fact]
+    public async Task Выключенный_источник_не_выгружает()
+    {
+        база.Kmp.Сертификаты.Add(new KmpCertificate("mail.example.com", "AA01", new DateOnly(2027, 1, 1)));
+        await Источник(i => i.RefreshAsync(Ct));
+        (await Источник(i => i.AvailableAsync(Ct))).ShouldBeTrue();
+
+        база.Kmp.Настройки = new KeyManagerConfiguration(false, "https://kmp.example.test:6565", true);
+
+        (await Источник(i => i.AvailableAsync(Ct))).ShouldBeFalse();
+        await Should.ThrowAsync<CertificateSourceException>(() => Источник(i => i.FetchAsync("mail.example.com", "AA01", Ct)));
+    }
+
     [Fact]
     public async Task Не_настроено_значит_опроса_нет()
     {

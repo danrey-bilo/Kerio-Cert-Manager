@@ -9,6 +9,7 @@ SECRETS_DIR="${1:-secrets}"
 path="$SECRETS_DIR/cloudflare_tunnel_token"
 
 printf 'Токен туннеля (Zero Trust → Networks → Tunnels → туннель → строка после --token): '
+trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 stty -echo 2>/dev/null || true
 IFS= read -r token
 stty echo 2>/dev/null || true

@@ -23,8 +23,12 @@ internal sealed record KeyManagerStatusOut(
     [property: JsonPropertyName("last_poll_error")] string? LastPollError,
     [property: JsonPropertyName("last_poll_count")] int? LastPollCount);
 
-/// <summary>Новый ключ API.</summary>
-internal sealed record ApiKeyIn([property: JsonPropertyName("api_key")] string? ApiKey);
+/// <summary>Новый ключ API; пустая строка снимает его.</summary>
+internal sealed record ApiKeyIn([property: JsonPropertyName("api_key")] string? ApiKey)
+{
+    /// <summary>⚠ Без ключа.</summary>
+    public override string ToString() => nameof(ApiKeyIn);
+}
 
 /// <summary>Итог проверки связи.</summary>
 internal sealed record KeyManagerTestOut([property: JsonPropertyName("certificates")] int Certificates);
@@ -74,7 +78,26 @@ internal sealed class KeyManagerController(
     {
         ArgumentNullException.ThrowIfNull(body);
 
+        // ⚠ Опечатка в имени поля не должна молча снимать ключ.
+        if (body.ApiKey is null)
+        {
+            throw new AppException(
+                ErrorCodes.Validation,
+                "Нужен ключ API; пустая строка снимает его.",
+                HttpStatusCode.BadRequest,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { ["field"] = "api_key" });
+        }
+
         var настройки = await connector.ReadAsync(cancellationToken);
+
+        // ⚠ Ключ привязан к адресу: без адреса он запечатался бы к пустому и потом отказал как «другой адрес».
+        if (!string.IsNullOrWhiteSpace(body.ApiKey) && string.IsNullOrWhiteSpace(настройки.BaseUrl))
+        {
+            throw new AppException(
+                KeyManagerErrorCodes.NotConfigured,
+                "Сначала задайте адрес Key Manager Plus — ключ API привязывается к нему.",
+                HttpStatusCode.Conflict);
+        }
 
         await db.InTransactionAsync(
             async token =>

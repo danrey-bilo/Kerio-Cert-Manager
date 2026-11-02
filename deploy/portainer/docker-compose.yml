@@ -1,4 +1,5 @@
-# Стек для Portainer (Stacks → Add stack → Upload) или `docker compose up -d`. Подробно — README.md рядом.
+# Стек для Portainer (Stacks → Add stack → Upload) или `docker compose -p kerio-cert-manager up -d`. Подробно — README.md рядом.
+# ⚠ Имя проекта всегда одно и то же: том базы называется по нему, в другом каталоге без -p база оказалась бы пустой.
 # Значения — в .env (Portainer: «Load variables from .env file»). Обновление — новый KCM_IMAGE и «Update the stack».
 # Подсеть 172.31.252.0/28 и порт 18001 — не те, что у eams-ssl-sender: стеки уживаются на одном сервере.
 
@@ -50,7 +51,7 @@ services:
 
   # Разово: схема, роль kcm_app и, если заданы, первый администратор или сброс доступа.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     command: ["migrate"]
     restart: "no"
     environment:
@@ -79,9 +80,9 @@ services:
         condition: service_healthy
 
   api:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     restart: unless-stopped
-    stop_grace_period: 2m
+    stop_grace_period: 2m30s
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: "8001"
@@ -140,6 +141,7 @@ services:
         condition: service_healthy
 
 # ⚠ Секреты — из переменных стека в файлы /run/secrets: в `docker inspect` и окружении контейнеров их нет.
+# Разовые пароли KCM_INIT_ADMIN_PASSWORD и KCM_RESET_ACCESS_PASSWORD видны у migrate — поэтому их убирают после входа.
 # ⚠ Поэтому без read_only у migrate, api и cloudflared: такие секреты compose пишет в контейнер, а в read_only — не может.
 secrets:
   kcm_master_kek:

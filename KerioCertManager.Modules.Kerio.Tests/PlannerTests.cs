@@ -150,10 +150,28 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void Первая_привязка_заменяет_самоподписанный_и_скоро_истекающий()
+    public void Первая_привязка_заменяет_самоподписанный_но_не_делает_хуже()
     {
         Решить(Сервер(), Подан("aa", 300, самоподписан: true), Выпуск("bb", 90)).Trigger.ShouldBe(DeployTriggers.Initial);
-        Решить(Сервер(), Подан("aa", 10), Выпуск("bb", 5)).Trigger.ShouldBe(DeployTriggers.Initial);
+        Решить(Сервер(), Подан("aa", 10), Выпуск("bb", 5)).Action.ShouldBe(PlanAction.None, "выпуск KMP кончится раньше поданного");
+        Решить(Сервер(), Подан("aa", 10), Выпуск("bb", 90)).Trigger.ShouldBe(DeployTriggers.Initial);
+    }
+
+    /// <summary>⚠ Правило одно с сертификатами имён: администратор поставил свой сертификат дольше — продление KMP его не заменит.</summary>
+    [Fact]
+    public void Чужой_дольше_не_заменяется_и_при_продлении()
+    {
+        var с = Сервер(installed: "aa");
+
+        Решить(с, Подан("cc", 300), Выпуск("bb", 90)).Action.ShouldBe(PlanAction.None);
+        Решить(с, Подан("aa", 300), Выпуск("bb", 90)).Action.ShouldBe(PlanAction.Deploy, "свой прежний выпуск — обычное продление");
+    }
+
+    /// <summary>⚠ О сроке пишем и когда установка запланирована: ставить могут не дать (API недоступен), а проход решит, молчать ли.</summary>
+    [Fact]
+    public void План_установки_несёт_срок_поданного()
+    {
+        Решить(Сервер(installed: "aa"), Подан("aa", 5), Выпуск("bb", 90)).Alerts.ShouldContain(а => а.Kind == AlertKinds.Expiring);
     }
 
     [Fact]
@@ -199,7 +217,11 @@ public sealed class PlannerTests
     [InlineData(2, 15)]
     [InlineData(3, 30)]
     [InlineData(4, 60)]
-    [InlineData(40, 60)]
+    [InlineData(5, 180)]
+    [InlineData(6, 360)]
+    [InlineData(7, 720)]
+    [InlineData(8, 1440)]
+    [InlineData(40, 1440)]
     public void Паузы_повторов(int неудач, int минут) => DeployPlanner.Backoff(неудач).ShouldBe(TimeSpan.FromMinutes(минут));
 
     private static DeployPlan Решить(KerioServer сервер, ServedCertificate? подан, SourceCertificate? выпуск) =>

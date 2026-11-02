@@ -14,9 +14,12 @@ internal enum AlertLevel
     Critical,
 }
 
-/// <summary>Условие, о котором стоит написать администраторам; вид и предмет — ключ подавления повторов.</summary>
+/// <summary>
+/// Условие, о котором стоит написать администраторам; вид и предмет — ключ подавления повторов. Тихое — верно, но
+/// письмо о нём лишнее (сертификат в очереди скоро встанет): счёт повторов идёт дальше.
+/// </summary>
 internal sealed record ServerAlert(
-    string Kind, AlertLevel Level, string Title, string Message, string? Scope = null, DateTimeOffset? Expires = null);
+    string Kind, AlertLevel Level, string Title, string Message, string? Scope = null, DateTimeOffset? Expires = null, bool Quiet = false);
 
 /// <summary>Виды предупреждений.</summary>
 internal static class AlertKinds
@@ -57,12 +60,19 @@ internal sealed record DeployPlan(
     string? Trigger,
     SourceCertificate? Source,
     IReadOnlyList<ServerAlert> Alerts,
-    string Note,
     bool Behind = false);
 
 /// <summary>Решает, ставить ли сертификат, — без побочных эффектов.</summary>
 internal static class DeployPlanner
 {
+    /// <summary>Календарных дней (UTC) до конца срока — одно число в панели и письмах; истёкший сегодня — уже −1.</summary>
+    internal static int ДнейДо(DateTimeOffset notAfter, DateTimeOffset now)
+    {
+        var дней = (notAfter.UtcDateTime.Date - now.UtcDateTime.Date).Days;
+
+        return notAfter < now ? Math.Min(дней, -1) : дней;
+    }
+
     public static DeployPlan Plan(
         KerioServer server,
         ServedCertificate? served,
@@ -79,7 +89,7 @@ internal static class DeployPlanner
         if (string.IsNullOrWhiteSpace(server.CommonName))
         {
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
-            return new DeployPlan(PlanAction.None, null, null, предупреждения, "Сертификат Key Manager Plus не выбран — только наблюдение.");
+            return new DeployPlan(PlanAction.None, null, null, предупреждения);
         }
 
         if (source is null)
@@ -93,7 +103,7 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
 
-            return new DeployPlan(PlanAction.None, null, null, предупреждения, "В Key Manager Plus нет привязанного сертификата.");
+            return new DeployPlan(PlanAction.None, null, null, предупреждения);
         }
 
         var наМесте = served is not null && Fingerprints.SameSerial(served.Serial, source.SerialNumber);
@@ -107,18 +117,14 @@ internal static class DeployPlanner
             var свой = Fingerprints.SameSerial(server.InstalledSerial, source.SerialNumber)
                 && (server.InstalledSha256 is null || string.Equals(server.InstalledSha256, served!.Sha256, StringComparison.Ordinal));
 
-            return new DeployPlan(
-                свой ? PlanAction.None : PlanAction.Adopt,
-                null,
-                source,
-                предупреждения,
-                свой ? "На сервере текущий сертификат." : "На сервере уже текущий сертификат Key Manager Plus — принят как установленный.");
+            return new DeployPlan(свой ? PlanAction.None : PlanAction.Adopt, null, source, предупреждения);
         }
 
         if (ручной)
         {
-            return new DeployPlan(
-                PlanAction.Deploy, DeployTriggers.Manual, source, предупреждения, "Установка по запросу администратора.", Behind: !наМесте);
+            Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: !наМесте);
+
+            return new DeployPlan(PlanAction.Deploy, DeployTriggers.Manual, source, предупреждения, Behind: !наМесте);
         }
 
         if (served is null)
@@ -128,7 +134,6 @@ internal static class DeployPlanner
                 null,
                 source,
                 предупреждения,
-                "Сервер не ответил по TLS — установка отложена.",
                 Behind: server.ServedSerial is not null && !Fingerprints.SameSerial(server.ServedSerial, source.SerialNumber)
                     && !Fingerprints.SameSerial(server.InstalledSerial, source.SerialNumber));
         }
@@ -145,32 +150,21 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
 
-            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Сертификат на сервере сменили мимо сервиса.");
+            return new DeployPlan(PlanAction.None, null, source, предупреждения);
         }
 
         var первая = server.InstalledSerial is null;
         var истекает = served.NotAfter - now <= TimeSpan.FromDays(warningDays);
 
-        if (первая)
+        if (ЧужойДольше(server, served.Serial, served.NotAfter, !served.SelfSigned && served.ChainTrusted && НаИмя(served, source.CommonName), source))
         {
-            var дольше = source.ExpiresOn is not { } до || до > DateOnly.FromDateTime(served.NotAfter.UtcDateTime);
-            var чужой = served.SelfSigned || !served.ChainTrusted || !НаИмя(served, source.CommonName);
-
-            if (!дольше && !истекает && !чужой)
-            {
-                return new DeployPlan(
-                    PlanAction.None,
-                    null,
-                    source,
-                    предупреждения,
-                    "На сервере действует сертификат дольше выпуска из Key Manager Plus — замена не нужна.");
-            }
+            Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: false);
+            return new DeployPlan(PlanAction.None, null, source, предупреждения);
         }
 
         var триггер = первая ? DeployTriggers.Initial : истекает ? DeployTriggers.Expiring : DeployTriggers.Renewal;
 
-        // ⚠ Выключатель сервера — о продлениях: первая установка выбранного сертификата идёт и при нём; общая пауза держит всё.
-        if (!globalAutoDeploy || (!server.AutoDeploy && !первая))
+        if (!InstallPolicy.Automatic(globalAutoDeploy, server.AutoDeploy, server.InstalledSerial))
         {
             предупреждения.Add(new ServerAlert(
                 AlertKinds.RenewalPending,
@@ -184,20 +178,14 @@ internal static class DeployPlanner
 
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: true);
 
-            return new DeployPlan(PlanAction.None, null, source, предупреждения, "Новый сертификат ждёт ручной установки.", Behind: true);
+            return new DeployPlan(PlanAction.None, null, source, предупреждения, Behind: true);
         }
 
         if (Fingerprints.SameSerial(server.FailedSerial, source.SerialNumber) && server.NextAttemptAt is { } повтор && повтор > now)
         {
             Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: true);
 
-            return new DeployPlan(
-                PlanAction.None,
-                null,
-                source,
-                предупреждения,
-                $"Прошлая установка не удалась; повтор после {повтор.ToUniversalTime():yyyy-MM-dd HH:mm} UTC.",
-                Behind: true);
+            return new DeployPlan(PlanAction.None, null, source, предупреждения, Behind: true);
         }
 
         if (server.DeployFailures > 0 && Fingerprints.SameSerial(server.FailedSerial, source.SerialNumber))
@@ -205,25 +193,40 @@ internal static class DeployPlanner
             триггер = DeployTriggers.Retry;
         }
 
-        return new DeployPlan(PlanAction.Deploy, триггер, source, предупреждения, "Новый выпуск в Key Manager Plus — установка.", Behind: true);
+        Срок(served, warningDays, now, предупреждения, вKmpЕстьНовый: true);
+
+        return new DeployPlan(PlanAction.Deploy, триггер, source, предупреждения, Behind: true);
     }
 
-    /// <summary>Пауза перед повтором после <paramref name="failures"/> неудач подряд: 5, 15, 30 минут, затем час.</summary>
+    /// <summary>
+    /// Подаётся доверенный сертификат на это имя, не поставленный сервисом, и действует дольше выпуска KMP: сам сервис
+    /// «хуже, чем было» не делает. Правило одно для сертификата по умолчанию и сертификатов имён.
+    /// </summary>
+    internal static bool ЧужойДольше(KerioServer server, string? servedSerial, DateTimeOffset servedNotAfter, bool trustedForName, SourceCertificate source) =>
+        trustedForName
+        && !server.Installed(servedSerial)
+        && !Fingerprints.SameSerial(servedSerial, source.SerialNumber)
+        && source.ExpiresOn is { } до
+        && servedNotAfter > new DateTimeOffset(до.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
+
+    /// <summary>
+    /// Пауза перед повтором после <paramref name="failures"/> неудач подряд: 5, 15, 30 минут, час, 3, 6, 12 часов, затем
+    /// сутки. ⚠ Неудачный повтор — это перезапуск HTTPS на рабочем сервере: долго не получается — не дёргать его часто.
+    /// </summary>
     public static TimeSpan Backoff(int failures) => failures switch
     {
         <= 1 => TimeSpan.FromMinutes(5),
         2 => TimeSpan.FromMinutes(15),
         3 => TimeSpan.FromMinutes(30),
-        _ => TimeSpan.FromHours(1),
+        4 => TimeSpan.FromHours(1),
+        5 => TimeSpan.FromHours(3),
+        6 => TimeSpan.FromHours(6),
+        7 => TimeSpan.FromHours(12),
+        _ => TimeSpan.FromHours(24),
     };
 
-    private static bool НаИмя(ServedCertificate served, string commonName)
-    {
-        var имя = commonName.Trim().ToLowerInvariant();
-
-        return served.DnsNames.Append(served.Subject).Any(и =>
-            string.Equals(и.Trim().ToLowerInvariant(), имя, StringComparison.Ordinal));
-    }
+    private static bool НаИмя(ServedCertificate served, string commonName) =>
+        served.DnsNames.Append(served.Subject).Any(и => Fingerprints.NameCovers(и, commonName));
 
     /// <summary>Предупреждения о сроке поданного сертификата, если заменить его сейчас нечем.</summary>
     private static void Срок(
@@ -247,7 +250,7 @@ internal static class DeployPlanner
         }
         else if (осталось <= TimeSpan.FromDays(warningDays))
         {
-            var дней = (int)Math.Ceiling(осталось.TotalDays);
+            var дней = Math.Max(ДнейДо(served.NotAfter, now), 1);
 
             предупреждения.Add(new ServerAlert(
                 AlertKinds.Expiring,

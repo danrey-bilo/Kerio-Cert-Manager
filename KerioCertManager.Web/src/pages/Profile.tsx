@@ -25,7 +25,7 @@ export function ProfilePage({ onRenamed, onLogout }: { onRenamed: () => void; on
   return (
     <>
       <PageHead title={t('Профиль')}>
-        <button onClick={onLogout}><Icon name="logout" />{t('Выйти')}</button>
+        <button type="button" onClick={onLogout}><Icon name="logout" />{t('Выйти')}</button>
       </PageHead>
       <div className="stack">
         <div className="card"><NameForm me={me} onSaved={onRenamed} /></div>
@@ -50,7 +50,7 @@ export function ProfilePage({ onRenamed, onLogout }: { onRenamed: () => void; on
                   <td className="muted">{fmtDateTime(s.last_seen_at)}</td>
                   <td className="actions">
                     {!s.current && (
-                      <button className="icon danger" title={t('Завершить')}
+                      <button type="button" className="icon danger" title={t('Завершить')}
                         onClick={async () => { if (await run(() => api.del('/api/me/sessions/' + s.id), t('Сессия завершена'))) reload(); }}>
                         <Icon name="logout" />
                       </button>

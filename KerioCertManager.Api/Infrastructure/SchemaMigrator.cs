@@ -64,6 +64,28 @@ public static class SchemaMigrator
         return недостаёт;
     }
 
+    /// <summary>Что применено, но коду не известно: образ откатили на старую версию.</summary>
+    public static async Task<IReadOnlyList<string>> UnknownAsync(
+        string connection, IReadOnlyList<ModuleSchema> schemas, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(schemas);
+
+        var лишние = new List<string>();
+
+        foreach (var набор in schemas)
+        {
+            await using var db = набор.Create(connection);
+
+            var свои = db.Database.GetMigrations().ToHashSet(StringComparer.Ordinal);
+
+            лишние.AddRange((await db.Database.GetAppliedMigrationsAsync(cancellationToken))
+                .Where(м => !свои.Contains(м))
+                .Select(м => $"{набор.Module}: {м}"));
+        }
+
+        return лишние;
+    }
+
     private static async Task ВыполнитьAsync(NpgsqlConnection connection, string sql, CancellationToken cancellationToken)
     {
         await using var command = new NpgsqlCommand(sql, connection);

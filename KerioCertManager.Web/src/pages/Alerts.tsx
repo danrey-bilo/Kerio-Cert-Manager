@@ -2,17 +2,15 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import { api, Cancelled, errorText } from '../lib/api';
 import { isMobile } from '../lib/device';
 import { fmtDateTime } from '../lib/format';
-import { useLoad } from '../lib/hooks';
-import { t } from '../lib/i18n';
+import { useLoad, usePagedList } from '../lib/hooks';
+import { LANGUAGES, t } from '../lib/i18n';
 import { ago, EVENT, splitList } from '../lib/kerio';
 import { loadSettings, saveSettings, text, type Settings } from '../lib/settings';
 import type { KerioServer, MailStatus, SentNotification } from '../lib/types';
-import { Empty, ErrorText, Failed, PageHead, Spinner, Status, type DotKind } from '../ui/bits';
+import { Banner, Empty, ErrorText, Failed, PageHead, Spinner, Status, Switch, type DotKind } from '../ui/bits';
 import { Icon } from '../ui/Icon';
 import { Invalid } from '../ui/Modal';
 import { useOverlay } from '../ui/Overlay';
-
-const LOCALES: Array<[string, string]> = [['ru', 'Русский'], ['uk', 'Українська'], ['en', 'English']];
 
 const LEVEL: Record<SentNotification['level'], DotKind> = { info: 'ok', warning: 'warn', critical: 'err' };
 
@@ -37,7 +35,7 @@ export function AlertsPage() {
   const page = useLoad(() => Promise.all([
     loadSettings(),
     api.get<KerioServer[]>('/api/kerio/servers'),
-    api.get<MailStatus>('/api/mail').catch(() => null),
+    api.get<MailStatus>('/api/mail'),
   ]));
 
   if (page.error) return <Failed text={page.error} />;
@@ -50,7 +48,7 @@ export function AlertsPage() {
 function AlertsForm({ settings, servers, mail, onSaved }: {
   settings: Settings;
   servers: KerioServer[];
-  mail: MailStatus | null;
+  mail: MailStatus;
   onSaved: () => void;
 }) {
   const { toast } = useOverlay();
@@ -131,24 +129,20 @@ function AlertsForm({ settings, servers, mail, onSaved }: {
   return (
     <>
       <PageHead title={t('Оповещения')} sub={t('Когда и кому сервис пишет о сертификатах и серверах Kerio Connect')}>
-        <button type="button" onClick={test} disabled={testing || !mail?.configured} title={mail?.configured ? t('Письмо общим получателям') : t('Сначала настройте почту')}>
+        <button type="button" onClick={test} disabled={testing || !mail.configured} title={mail.configured ? t('Письмо общим получателям') : t('Сначала настройте почту')}>
           <Icon name="send" />{testing ? t('Отправка…') : t('Пробное письмо')}
         </button>
       </PageHead>
 
-      {mail && !mail.configured && (
-        <div className="banner warn">
-          <span className="banner-icon"><Icon name="mail" /></span>
-          <div className="banner-text"><b>{t('Почта не настроена — оповещения не уходят')}</b><span>{t('Укажите сервер SMTP, и письма пойдут по правилам ниже.')}</span></div>
-          <a className="button" href="#/settings/mail">{t('Настроить почту')}</a>
-        </div>
+      {!mail.configured && (
+        <Banner tone="warn" icon="mail" title={t('Почта не настроена — оповещения не уходят')}
+          text={t('Укажите сервер SMTP, и письма пойдут по правилам ниже.')}
+          href="#/settings/mail" action={t('Настроить почту')} />
       )}
-      {mail?.configured && mail.failed > 0 && (
-        <div className="banner err">
-          <span className="banner-icon"><Icon name="alert" /></span>
-          <div className="banner-text"><b>{t('Не ушло писем: {0}', mail.failed)}</b><span>{mail.last_error ?? t('Сервер SMTP отказал.')}</span></div>
-          <a className="button" href="#/settings/mail">{t('Почта')}</a>
-        </div>
+      {mail.configured && mail.failed > 0 && (
+        <Banner tone="err" icon="alert" title={t('Не ушло писем: {0}', mail.failed)}
+          text={mail.last_error ?? t('Сервер SMTP отказал.')}
+          href="#/settings/mail" action={t('Почта')} />
       )}
 
       <form onSubmit={submit} className="stack">
@@ -176,7 +170,7 @@ function AlertsForm({ settings, servers, mail, onSaved }: {
           </Rule>
 
           <Rule title={t('Установка не удалась или откачена')} level="err" on={form.switches.failed} onChange={toggle('failed')}
-            hint={t('С причиной и шагом, на котором остановилось; повтор по тому же выпуску — не чаще интервала ниже.')} />
+            hint={t('С причиной и шагом, на котором остановилось; повтор по тому же выпуску — не чаще интервала ниже. Сюда же — когда свежий выпуск установлен, а Kerio для этого имени подаёт прежний.')} />
 
           <Rule title={t('Сертификат установлен')} level="ok" on={form.switches.deployed} onChange={toggle('deployed')}
             hint={t('Одна установка — письмо сразу: что, куда, отпечаток, до какого числа. Очередь из нескольких — одно сводное письмо, когда она пройдена.')} />
@@ -226,7 +220,7 @@ function AlertsForm({ settings, servers, mail, onSaved }: {
               <small>{t('Тема, рамка и подробности событий — на этом языке.')}</small>
             </div>
             <select className="narrow" value={form.locale} onChange={e => set('locale', e.target.value)}>
-              {LOCALES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+              {LANGUAGES.map(({ code, name }) => <option key={code} value={code}>{name}</option>)}
             </select>
           </div>
           {servers.length > 0 && (
@@ -282,10 +276,7 @@ function Rule({ title, hint, level, on, onChange, children }: {
         </div>
         {children && on && <div className="rule-params">{children}</div>}
       </div>
-      <label className="switch" title={on ? t('Выключить') : t('Включить')}>
-        <input type="checkbox" checked={on} onChange={e => onChange(e.target.checked)} aria-label={title} />
-        <span />
-      </label>
+      <Switch label={title} checked={on} onChange={onChange} title={on ? t('Выключить') : t('Включить')} />
     </div>
   );
 }
@@ -297,33 +288,17 @@ function Param({ label, children }: { label: string; children: ReactNode }) {
 const PAGE = 30;
 
 function History() {
-  const [items, setItems] = useState<SentNotification[] | null>(null);
-  const [error, setError] = useState('');
-  const [more, setMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const load = async (before: string | null) => {
-    setLoading(true);
-    try {
-      const query = new URLSearchParams({ limit: String(PAGE) });
-      if (before) query.set('before', before);
-      const page = await api.get<SentNotification[]>('/api/kerio/notifications?' + query.toString());
-      setItems(list => (before && list ? [...list, ...page] : page));
-      setMore(page.length === PAGE);
-      setError('');
-    } catch (err) {
-      if (!(err instanceof Cancelled)) setError(errorText(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { void load(null); }, []);
+  const { items, error, loading, hasMore, loadMore } = usePagedList(async cursor => {
+    const query = new URLSearchParams({ limit: String(PAGE) });
+    if (cursor) query.set('before', cursor);
+    const page = await api.get<SentNotification[]>('/api/kerio/notifications?' + query.toString());
+    return { items: page, next: page.length === PAGE ? page[page.length - 1]!.at : null };
+  }, (n: SentNotification) => n.id);
 
   return (
     <>
       <div className="section-head"><h2>{t('Отправленные оповещения')}</h2><span className="muted small">{t('хранятся 180 дней')}</span></div>
-      {error ? <Failed text={error} /> : !items ? <Spinner /> : items.length === 0 ? (
+      {!items ? (error ? <Failed text={error} /> : <Spinner />) : items.length === 0 ? (
         <div className="card"><Empty title={t('Писем ещё не было')} hint={t('Здесь появится каждое оповещение: о чём, о каком сервере и кому ушло.')} /></div>
       ) : (
         <div className="card flush">
@@ -340,6 +315,7 @@ function History() {
                         {n.server_name && <span>{n.server_name}</span>}
                         <span title={n.recipients.join(', ')}>{t('{0} адрес.', n.recipients.length)}</span>
                       </div>
+                      {n.queued < n.recipients.length && <div className="small err-text">{t('в очередь принято {0} из {1}', n.queued, n.recipients.length)}</div>}
                     </div>
                     <span className="tl-time" title={fmtDateTime(n.at)}>{ago(n.at)}</span>
                   </div>
@@ -367,9 +343,10 @@ function History() {
               </tbody>
             </table>
           )}
-          {more && (
+          <ErrorText text={error} />
+          {hasMore && (
             <div className="load-more">
-              <button type="button" disabled={loading} onClick={() => void load(items[items.length - 1]?.at ?? null)}>
+              <button type="button" disabled={loading} onClick={loadMore}>
                 {loading ? t('Загрузка…') : t('Показать ещё')}
               </button>
             </div>

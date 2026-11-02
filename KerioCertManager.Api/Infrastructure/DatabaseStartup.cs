@@ -1,6 +1,5 @@
 using Modules.Core.Composition;
 using Modules.Core.Data;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,9 +39,6 @@ public static class DatabaseStartup
     private static void Configure(
         DbContextOptionsBuilder options, string connectionString, IServiceProvider provider)
     {
-        // ⚠ Перехватчики — синглтоны из контейнера: о фиксации чужой транзакции модулю иначе не узнать.
-        options.AddInterceptors(provider.GetServices<IInterceptor>());
-
         // ⚠ Свой ключ кэша: модель собирается из конфигураций модулей, а ключ по умолчанию видит только тип.
         options.ReplaceService<IModelCacheKeyFactory, AppModelCacheKeyFactory>();
 
@@ -89,6 +85,14 @@ public static class DatabaseStartup
 
         if (pending.Count == 0)
         {
+            var лишние = await SchemaMigrator.UnknownAsync(
+                app.Services.GetRequiredService<SchemaConnection>().Value, Наборы(app), cancellationToken);
+
+            if (лишние.Count > 0)
+            {
+                app.Logger.LogWarning("schema_newer_than_code {Migrations}", string.Join(", ", лишние));
+            }
+
             return;
         }
 

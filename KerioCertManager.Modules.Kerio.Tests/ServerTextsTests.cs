@@ -78,8 +78,8 @@ public sealed class ServerTextsTests
 
         тексты.Translate("Kerio отказал (ConnectCertificate.importCertificate): Emulated failure. [код 1000]", "en")
             .ShouldBe("Kerio refused (ConnectCertificate.importCertificate): Emulated failure. [code 1000]");
-        тексты.Translate("Сертификат mail.example.com от Demo CA, до 2027-01-30, SHA-256 AA:BB; промежуточных в цепочке: 1.", "en")
-            .ShouldBe("Certificate mail.example.com from Demo CA, until 2027-01-30, SHA-256 AA:BB; intermediate certificates in the chain: 1.");
+        тексты.Translate("Сертификат mail.example.com от Demo CA, до 2027-01-30, SHA-256 AA:BB. Промежуточных в цепочке: 1.", "en")
+            .ShouldBe("Certificate mail.example.com from Demo CA, until 2027-01-30, SHA-256 AA:BB. Intermediate certificates in the chain: 1.");
         тексты.Translate("Сертификат mail.example.com от Demo CA, до 2027-01-30, SHA-256 AA:BB.", "en")
             .ShouldBe("Certificate mail.example.com from Demo CA, until 2027-01-30, SHA-256 AA:BB.");
     }

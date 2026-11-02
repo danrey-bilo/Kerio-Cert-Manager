@@ -30,6 +30,17 @@ public sealed class MasterKeyTests
             .FromEnvironment.ShouldBeTrue();
     }
 
+    /// <summary>Версия и соседняя строка ключ не делают тайным.</summary>
+    [Fact]
+    public void Ключ_демо_стенда_не_пройдёт_под_другой_версией_и_строкой()
+    {
+        var значение = MasterKeyFile.DemoKey[(MasterKeyFile.DemoKey.IndexOf(':', StringComparison.Ordinal) + 1)..];
+        var свой = Convert.ToBase64String(Enumerable.Repeat((byte)7, 32).ToArray());
+
+        Should.Throw<InvalidOperationException>(() => MasterKeyFile.Load(Config((MasterKeyFile.InlineKey, "2:" + значение))));
+        Should.Throw<InvalidOperationException>(() => MasterKeyFile.Load(Config((MasterKeyFile.InlineKey, $"2:{свой}\n1:{значение}"))));
+    }
+
     [Fact]
     public void Файл_идёт_вперёд_переменной()
     {

@@ -119,7 +119,7 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
             var кто = await сессия.WhoAmIAsync(cancellationToken);
             var версия = await сессия.VersionAsync(cancellationToken);
             var сертификаты = await сессия.CertificatesAsync(cancellationToken);
-            var хранилище = await ХранилищеAsync(сессия, сертификаты, cancellationToken);
+            var хранилище = await ХранилищеAsync(сессия, сертификаты, cancellationToken, server.Store);
 
             var отказ = кто.Role == FullAdmin
                 ? null
@@ -142,7 +142,10 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
 
     /// <summary>Хранилище с отпечатком и сроком каждого серверного сертификата — только чтением (<c>toSource</c>).</summary>
     internal static async Task<IReadOnlyList<StoredCertificate>> ХранилищеAsync(
-        IKerioSession session, IReadOnlyList<KerioCertificate> certificates, CancellationToken cancellationToken)
+        IKerioSession session,
+        IReadOnlyList<KerioCertificate> certificates,
+        CancellationToken cancellationToken,
+        IReadOnlyList<StoredCertificate>? прежние = null)
     {
         var итог = new List<StoredCertificate>();
 
@@ -173,6 +176,11 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
                 }
                 catch (KerioException ошибка) when (ошибка.Kind is not (KerioFailure.Authentication or KerioFailure.Tls))
                 {
+                    // ⚠ Текст не прочитан: прежние данные той же записи лучше пустых — иначе стоящий выпуск покажется недостающим.
+                    if (прежние?.FirstOrDefault(п => п.Id == с.Id && п.Subject == с.Subject && п.Serial is not null) is { } был)
+                    {
+                        запись = был with { Type = с.Type, Untrusted = с.IsUntrusted };
+                    }
                 }
             }
 
@@ -182,15 +190,35 @@ internal sealed class ServerInspection(IKerioConnector connector, ITlsInspector 
         return итог;
     }
 
-    /// <summary>Записать итог проверки в строку сервера.</summary>
-    public static void Apply(KerioServer server, InspectionResult result, DateTimeOffset now)
+    /// <summary>
+    /// Записать итог проверки в строку сервера. Счётчики сбоев — отдельно для TLS и API. <paramref name="считатьСбои"/> —
+    /// нет в проходах очереди: они идут каждые 45 секунд, в том числе сквозь перезапуск HTTPS после установки.
+    /// </summary>
+    public static void Apply(KerioServer server, InspectionResult result, DateTimeOffset now, bool считатьСбои = true)
     {
         ArgumentNullException.ThrowIfNull(server);
         ArgumentNullException.ThrowIfNull(result);
 
         server.LastCheckAt = now;
         server.LastCheckError = result.Error;
-        server.CheckFailures = result.Error is null ? 0 : server.CheckFailures + 1;
+
+        if (result.Served is not null)
+        {
+            server.TlsFailures = 0;
+        }
+        else if (считатьСбои)
+        {
+            server.TlsFailures++;
+        }
+
+        if (result.ApiError is null && result.ApiChecked)
+        {
+            server.CheckFailures = 0;
+        }
+        else if (считатьСбои && result.ApiError is not null)
+        {
+            server.CheckFailures++;
+        }
 
         if (result.Served is { } подан)
         {

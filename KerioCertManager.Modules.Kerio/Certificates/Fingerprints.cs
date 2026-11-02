@@ -109,6 +109,19 @@ internal static partial class Fingerprints
         return !искомое.StartsWith("*.", StringComparison.Ordinal) && имена.Any(и => ПодЗвёздочку(и, искомое));
     }
 
+    /// <summary>Имя сертификата (в том числе «*.домен» на одну метку) покрывает имя узла.</summary>
+    public static bool NameCovers(string certificateName, string host)
+    {
+        ArgumentNullException.ThrowIfNull(certificateName);
+        ArgumentNullException.ThrowIfNull(host);
+
+        var шаблон = certificateName.Trim().TrimEnd('.').ToLowerInvariant();
+        var имя = host.Trim().TrimEnd('.').ToLowerInvariant();
+
+        return string.Equals(шаблон, имя, StringComparison.Ordinal)
+            || (!имя.StartsWith("*.", StringComparison.Ordinal) && ПодЗвёздочку(шаблон, имя));
+    }
+
     private static bool ПодЗвёздочку(string шаблон, string имя)
     {
         if (!шаблон.StartsWith("*.", StringComparison.Ordinal))

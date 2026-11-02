@@ -4,11 +4,10 @@ import { isMobile } from '../lib/device';
 import { fmtDate, fmtDateTime } from '../lib/format';
 import { useLoad } from '../lib/hooks';
 import { t } from '../lib/i18n';
-import type { KerioServer, KeyManagerStatus, KnownCertificate } from '../lib/types';
+import { daysFromDate, daysText, daysTone, sameName } from '../lib/kerio';
+import type { KeyManagerStatus, KnownCertificate, Overview } from '../lib/types';
 import { Empty, Failed, PageHead, Spinner } from '../ui/bits';
 import { Icon } from '../ui/Icon';
-
-const DAY = 86_400_000;
 
 type Order = 'name' | 'expiry-asc' | 'expiry-desc';
 
@@ -45,22 +44,13 @@ const COMPARE: Record<Order, (a: KnownCertificate, b: KnownCertificate) => numbe
   'expiry-desc': byExpiry(-1),
 };
 
-function daysLeft(ymd: string | null): number | null {
-  if (!ymd) return null;
-  const end = new Date(ymd + 'T00:00:00').getTime();
-  const today = new Date(new Date().toDateString()).getTime();
-  return Math.round((end - today) / DAY);
-}
-
-function Expiry({ ymd }: { ymd: string | null }) {
-  const days = daysLeft(ymd);
+function Expiry({ ymd, warning }: { ymd: string | null; warning: number }) {
+  const days = daysFromDate(ymd);
   if (days === null) return <span className="muted">—</span>;
-  const kind = days <= 14 ? 'err' : days <= 30 ? 'warn' : '';
-  const label = days < 0 ? t('истёк') : days === 0 ? t('сегодня') : t('{0} дн.', days);
   return (
     <span className="expiry">
       {fmtDate(ymd)}
-      <span className={'badge ' + kind}>{label}</span>
+      <span className={'badge ' + daysTone(days, warning)}>{daysText(days)}</span>
     </span>
   );
 }
@@ -69,7 +59,7 @@ export function CertificatesPage() {
   const { data, error } = useLoad(() => Promise.all([
     api.get<KeyManagerStatus>('/api/keymanager'),
     api.get<KnownCertificate[]>('/api/keymanager/certificates'),
-    api.get<KerioServer[]>('/api/kerio/servers').catch(() => [] as KerioServer[]),
+    api.get<Overview>('/api/kerio/overview'),
   ]));
   const [query, setQuery] = useState('');
   const [order, setOrder] = useState<Order>(savedOrder);
@@ -90,14 +80,13 @@ export function CertificatesPage() {
   if (error) return <Failed text={error} />;
   if (!data) return <Spinner />;
 
-  const [km, known, servers] = data;
+  const [km, known, { servers, warning_days: warning }] = data;
 
   /** Серверы Kerio, на которые уходит выпуск: по умолчанию или как сертификат имени. */
   const usedBy = (c: KnownCertificate) => {
-    const name = c.common_name.toLowerCase();
     return servers.flatMap(s =>
-      s.common_name?.toLowerCase() === name ? [{ server: s, role: t('по умолчанию') }]
-        : s.extras.some(e => e.common_name.toLowerCase() === name) ? [{ server: s, role: t('по имени') }]
+      sameName(s.common_name, c.common_name) ? [{ server: s, role: t('по умолчанию') }]
+        : s.extras.some(e => sameName(e.common_name, c.common_name)) ? [{ server: s, role: t('по имени') }]
           : []);
   };
 
@@ -145,7 +134,7 @@ export function CertificatesPage() {
                 <div key={c.common_name + c.serial_number} className="item">
                   <div className="item-main">
                     <div className="item-title">{c.common_name}</div>
-                    <div className="item-meta"><Expiry ymd={c.expires_on} /></div>
+                    <div className="item-meta"><Expiry ymd={c.expires_on} warning={warning} /></div>
                     <div className="item-meta mono">{c.serial_number}</div>
                     {usedBy(c).length > 0 && <div className="item-meta">{used(c)}</div>}
                   </div>
@@ -181,7 +170,7 @@ export function CertificatesPage() {
                       <span className="strong">{c.common_name}</span>
                       <span className="sub mono">{c.serial_number}</span>
                     </td>
-                    <td><Expiry ymd={c.expires_on} /></td>
+                    <td><Expiry ymd={c.expires_on} warning={warning} /></td>
                     <td>{used(c)}</td>
                     <td className="muted">{fmtDateTime(c.first_seen_at)}</td>
                   </tr>

@@ -31,7 +31,8 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
         headers["Cross-Origin-Opener-Policy"] = "same-origin";
         headers["Cross-Origin-Resource-Policy"] = "same-origin";
 
-        if (context.Request.IsHttps)
+        // ⚠ Не для localhost: браузер запомнил бы HTTPS для всех сервисов этого компьютера.
+        if (context.Request.IsHttps && !context.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
         {
             headers.StrictTransportSecurity = Hsts;
         }

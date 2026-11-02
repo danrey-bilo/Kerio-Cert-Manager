@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, Cancelled, errorText } from '../lib/api';
 import { isMobile } from '../lib/device';
-import { fmtDate, fmtDateTime } from '../lib/format';
-import { intlLocale, plural, t } from '../lib/i18n';
+import { fmtDate, fmtDateTime, fmtDay } from '../lib/format';
+import { plural, t } from '../lib/i18n';
 import { useLoad, usePolling } from '../lib/hooks';
 import {
-  ago, closestName, connection, daysUntil, daysText, duration, fingerprint, hostOf, OUTCOME, shortFingerprint, splitList, STATUS, STEP, TRIGGER,
+  ago, bareSerial, closestName, connection, daysFromDate, daysText, downCount, fingerprint, hostOf, managedCerts, sameName, shortFingerprint, splitList, STATUS,
 } from '../lib/kerio';
-import type { Deployment, KerioServer, KnownCertificate, LoginTest, Probe, ServerStatus } from '../lib/types';
-import { Check, CodeInput, Empty, ErrorText, Failed, Field, PageHead, Spinner, Status } from '../ui/bits';
+import type { KerioServer, KnownCertificate, LoginTest, Probe } from '../lib/types';
+import { CodeInput, Empty, ErrorText, Failed, Field, PageHead, Spinner, StaleNotice, Status, Switch } from '../ui/bits';
 import { Icon } from '../ui/Icon';
 import { FormModal, Invalid } from '../ui/Modal';
 import { useOverlay } from '../ui/Overlay';
@@ -16,6 +16,11 @@ import { useOverlay } from '../ui/Overlay';
 /** Раздел «Серверы» — управление подключениями: связь, синхронизация, подключение, правка, удаление. */
 export function ServersPage({ id }: { id?: string }) {
   return <ServersList openWizard={id === 'new'} editId={id && id !== 'new' ? id : undefined} />;
+}
+
+/** Окно закрыто: адрес окна сменить на список. Человек ушёл кнопкой браузера — его адрес не трогать. */
+function leaveServerAddress() {
+  if (location.hash.startsWith('#/servers/')) history.replaceState(null, '', '#/servers');
 }
 
 function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: string }) {
@@ -29,13 +34,13 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
     const created = await new Promise<string | null>(resolve => {
       void show(close => <ConnectWizard onClose={id => { close(Boolean(id)); resolve(id); }} />);
     });
-    if (location.hash !== '#/servers') history.replaceState(null, '', '#/servers');
+    leaveServerAddress();
     if (created) { toast(t('Сервер подключён — первая проверка уже идёт')); reload(); }
   };
 
   const edit = async (server: KerioServer) => {
     await show(close => <ServerDialog server={server} onClose={done => { close(done); reload(); }} />);
-    if (location.hash !== '#/servers') history.replaceState(null, '', '#/servers');
+    leaveServerAddress();
   };
 
   const remove = async (server: KerioServer) => {
@@ -74,11 +79,15 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
 
   usePolling(refresh, syncing || data?.some(s => s.busy) ? 5_000 : 15_000);
 
-  if (error) return <Failed text={error} />;
+  if (error && !data) return <Failed text={error} />;
   if (!data) return <Spinner />;
 
   const servers = [...data].sort((a, b) => a.name.localeCompare(b.name));
-  const down = servers.filter(s => s.enabled && connection(s).dot === 'err').length;
+  const down = downCount(servers);
+  const Entry = isMobile ? ConnectionCard : ServerRow;
+  const entries = servers.map(s => (
+    <Entry key={s.id} server={s} checking={checking === s.id} onCheck={() => check(s)} onEdit={() => edit(s)} onDelete={() => remove(s)} />
+  ));
 
   return (
     <>
@@ -86,14 +95,16 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
         title={t('Серверы Kerio Connect')}
         sub={servers.length === 0
           ? t('Подключения к серверам и какой сертификат из Key Manager Plus ставить на каждый')
-          : <>{servers.length} {plural(servers.length, 'сервер', 'сервера', 'серверов')} · {down ? <span className="err-text">{t('{0} без связи', down)}</span> : t('все на связи')}</>}
+          : <>{servers.length} {plural(servers.length, 'сервер', 'сервера', 'серверов')} · {down ? <span className="err-text">{t('{0} без связи', down)}</span> : servers.some(s => s.enabled) ? t('все на связи') : t('все отключены')}</>}
       >
-        <button onClick={sync} disabled={syncing}>
+        <button type="button" onClick={sync} disabled={syncing}>
           {syncing ? <span className="spinner inline-spinner" /> : <Icon name="refresh" />}
           {syncing ? t('Синхронизация…') : t('Синхронизировать')}
         </button>
-        <button className="primary" onClick={add}><Icon name="plus" />{t('Подключить сервер')}</button>
+        <button type="button" className="primary" onClick={add}><Icon name="plus" />{t('Подключить сервер')}</button>
       </PageHead>
+
+      <StaleNotice error={error} />
 
       {servers.length === 0 ? (
         <div className="card">
@@ -101,16 +112,11 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
             title={t('Серверов пока нет')}
             hint={t('Понадобятся адрес администрирования (обычно https://сервер:4040) и отдельная учётная запись Kerio с правами полного администратора.')}
           >
-            <button className="primary" onClick={add}><Icon name="plus" />{t('Подключить первый сервер')}</button>
+            <button type="button" className="primary" onClick={add}><Icon name="plus" />{t('Подключить первый сервер')}</button>
           </Empty>
         </div>
       ) : isMobile ? (
-        <div className="stack tight">
-          {servers.map(s => (
-            <ConnectionCard key={s.id} server={s} checking={checking === s.id}
-              onCheck={() => check(s)} onEdit={() => edit(s)} onDelete={() => remove(s)} />
-          ))}
-        </div>
+        <div className="stack tight">{entries}</div>
       ) : (
         <div className="card flush">
           <table className="servers-table">
@@ -122,46 +128,7 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
                 <th aria-label={t('Действия')} />
               </tr>
             </thead>
-            <tbody>
-              {servers.map(s => {
-                const c = connection(s);
-                return (
-                  <tr key={s.id} className={s.enabled ? '' : 'off'}>
-                    <td>
-                      <div className="server-cell">
-                        <span className={'server-icon ' + c.dot}><Icon name="server" /></span>
-                        <div>
-                          <b>{s.name}</b>
-                          <span className="sub mono">{hostOf(s.base_url)}</span>
-                          <span className="sub">{sslSummary(s)}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="conn-cell">
-                      <Status kind={s.busy ? 'warn' : c.dot} strong>{s.busy ? t('Работает…') : c.label}</Status>
-                      {c.text && <span className={'sub' + (c.dot === 'err' ? ' err-text' : '')}>{c.text}</span>}
-                    </td>
-                    <td className="muted nowrap" title={fmtDateTime(s.last_check_at)}>{ago(s.last_check_at)}</td>
-                    <td className="actions">
-                      <div className="row-icons">
-                        <button type="button" className="icon" title={t('Проверить связь сейчас')} aria-label={t('Проверить {0}', s.name)}
-                          disabled={checking === s.id || s.busy} onClick={() => check(s)}>
-                          {checking === s.id ? <span className="spinner inline-spinner" /> : <Icon name="pulse" />}
-                        </button>
-                        <button type="button" className="icon" title={t('Изменить: сертификат SSL и подключение')} aria-label={t('Изменить {0}', s.name)}
-                          onClick={() => edit(s)}>
-                          <Icon name="edit" />
-                        </button>
-                        <button type="button" className="icon danger" title={t('Удалить сервер')} aria-label={t('Удалить {0}', s.name)}
-                          disabled={s.busy} onClick={() => remove(s)}>
-                          <Icon name="trash" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+            <tbody>{entries}</tbody>
           </table>
         </div>
       )}
@@ -171,20 +138,61 @@ function ServersList({ openWizard, editId }: { openWizard: boolean; editId?: str
 
 /** Строка-напоминание о настройке SSL: какой сертификат и как ставится. */
 function sslSummary(s: KerioServer): string {
-  const total = (s.common_name ? 1 : 0) + s.extras.length;
-  if (total === 0) return t('Сертификаты KMP не выбраны — только наблюдение');
-  const names = [s.common_name, ...s.extras.map(e => e.common_name)].filter(Boolean) as string[];
+  const names = managedCerts(s).map(m => m.name);
+  if (names.length === 0) return t('Сертификаты KMP не выбраны — только наблюдение');
   const list = names.length <= 2 ? names.join(', ') : t('{0} и ещё {1}', names.slice(0, 2).join(', '), names.length - 2);
   return `KMP: ${list}` + (s.auto_deploy ? t(' · автоустановка') : t(' · установка вручную'));
 }
 
-function ConnectionCard({ server: s, checking, onCheck, onEdit, onDelete }: {
+interface EntryProps {
   server: KerioServer;
   checking: boolean;
   onCheck: () => void;
   onEdit: () => void;
   onDelete: () => void;
-}) {
+}
+
+function ServerRow({ server: s, checking, onCheck, onEdit, onDelete }: EntryProps) {
+  const c = connection(s);
+
+  return (
+    <tr className={s.enabled ? '' : 'off'}>
+      <td>
+        <div className="server-cell">
+          <span className={'server-icon ' + c.dot}><Icon name="server" /></span>
+          <div>
+            <b>{s.name}</b>
+            <span className="sub mono">{hostOf(s.base_url)}</span>
+            <span className="sub">{sslSummary(s)}</span>
+          </div>
+        </div>
+      </td>
+      <td className="conn-cell">
+        <Status kind={s.busy ? 'warn' : c.dot} strong>{s.busy ? t('Работает…') : c.label}</Status>
+        {c.text && <span className={'sub' + (c.dot === 'err' ? ' err-text' : '')}>{c.text}</span>}
+      </td>
+      <td className="muted nowrap" title={fmtDateTime(s.last_check_at)}>{ago(s.last_check_at)}</td>
+      <td className="actions">
+        <div className="row-icons">
+          <button type="button" className="icon" title={t('Проверить связь сейчас')} aria-label={t('Проверить {0}', s.name)}
+            disabled={checking || s.busy} onClick={onCheck}>
+            {checking ? <span className="spinner inline-spinner" /> : <Icon name="pulse" />}
+          </button>
+          <button type="button" className="icon" title={t('Изменить: сертификат SSL и подключение')} aria-label={t('Изменить {0}', s.name)}
+            onClick={onEdit}>
+            <Icon name="edit" />
+          </button>
+          <button type="button" className="icon danger" title={t('Удалить сервер')} aria-label={t('Удалить {0}', s.name)}
+            disabled={s.busy} onClick={onDelete}>
+            <Icon name="trash" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function ConnectionCard({ server: s, checking, onCheck, onEdit, onDelete }: EntryProps) {
   const c = connection(s);
 
   return (
@@ -233,7 +241,39 @@ function DeleteDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
   );
 }
 
-const bare = (serial: string | null | undefined) => (serial ?? '').replace(/[^0-9a-f]/gi, '').replace(/^0+/, '').toLowerCase();
+/** Порты из строки через запятую. */
+function parsePorts(text: string): number[] {
+  const list = splitList(text).map(Number);
+  if (list.some(p => !Number.isInteger(p) || p < 1 || p > 65535)) throw new Invalid(t('Порты — числа от 1 до 65535 через запятую.'));
+  return list;
+}
+
+/** Как ставить и что убирать — одни слова в мастере подключения и в настройках сервера. */
+function DeployToggles({ auto, onAuto, cleanup, onCleanup }: {
+  auto: boolean;
+  onAuto: (value: boolean) => void;
+  cleanup: boolean;
+  onCleanup: (value: boolean) => void;
+}) {
+  return (
+    <div className="toggles">
+      <div className="setting-row compact">
+        <div className="setting-label">
+          <span>{t('Ставить продлённые автоматически')}</span>
+          <small>{t('Выключено — продления ждут письма и кнопки «Обновить» во вкладке «Обзор»; только что добавленный сертификат встаёт в очередь установки сразу.')}</small>
+        </div>
+        <Switch label={t('Ставить продлённые автоматически')} checked={auto} onChange={onAuto} />
+      </div>
+      <div className="setting-row compact">
+        <div className="setting-label">
+          <span>{t('Убирать старые версии сертификатов')}</span>
+          <small>{t('После удачной установки — и по умолчанию, и по имени; одна предыдущая остаётся для ручного возврата. Убираются только свои версии: из Key Manager Plus или поставленные сервисом; купленные и положенные вручную не трогаются. Своя версия имени, что действует дольше новой, убирается всегда — иначе Kerio подавал бы её.')}</small>
+        </div>
+        <Switch label={t('Убирать старые версии сертификатов')} checked={cleanup} onChange={onCleanup} />
+      </div>
+    </div>
+  );
+}
 
 type Tab = 'ssl' | 'connection';
 
@@ -271,7 +311,8 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const initialNames = [...(s.common_name ? [s.common_name] : []), ...s.extras.map(e => e.common_name)];
+  const initial = managedCerts(s);
+  const initialNames = initial.map(m => m.name);
   const [names, setNames] = useState<string[]>(initialNames);
   const [primary, setPrimary] = useState(s.common_name ?? '');
   const [draft, setDraft] = useState('');
@@ -297,22 +338,18 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
 
   const host = useMemo(() => { try { return new URL(s.base_url).hostname; } catch { return ''; } }, [s.base_url]);
 
-  /** Текущий выпуск каждого имени KMP — замеченный позже всех. */
+  /** Текущий выпуск каждого имени KMP: сервер отдаёт их в порядке выбора, первый и есть текущий. */
   const releases = useMemo(() => {
     const map = new Map<string, KmpRelease>();
-    for (const c of [...(kmp.data ?? [])].sort((a, b) => a.first_seen_at.localeCompare(b.first_seen_at))) {
-      map.set(c.common_name.toLowerCase(), { commonName: c.common_name, serial: c.serial_number, expiresOn: c.expires_on });
+    for (const c of kmp.data ?? []) {
+      const key = c.common_name.toLowerCase();
+      if (!map.has(key)) map.set(key, { commonName: c.common_name, serial: c.serial_number, expiresOn: c.expires_on });
     }
     return map;
   }, [kmp.data]);
 
   const managed = useMemo(() => new Set(initialNames.map(n => n.toLowerCase())), [s]);
-  const status = useMemo(() => {
-    const map = new Map<string, { status: ServerStatus; text: string }>();
-    if (s.common_name) map.set(s.common_name.toLowerCase(), { status: s.status, text: s.status_text });
-    for (const e of s.extras) map.set(e.common_name.toLowerCase(), { status: e.status, text: e.status_text });
-    return map;
-  }, [s]);
+  const status = useMemo(() => new Map(initial.map(m => [m.name.toLowerCase(), m])), [s]);
 
   const problems = names.map(n => problemOf(n, releases, managed, Boolean(kmp.data)));
   const suggestions = [...releases.values()].map(r => r.commonName).filter(n => !names.some(x => x.toLowerCase() === n.toLowerCase())).sort();
@@ -342,12 +379,6 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
     if (primary === n) setPrimary('');
   };
 
-  const portList = () => {
-    const list = splitList(ports).map(Number);
-    if (list.some(p => !Number.isInteger(p) || p < 1 || p > 65535)) throw new Invalid(t('Порты — числа от 1 до 65535 через запятую.'));
-    return list;
-  };
-
   const save = async () => {
     const bad = names.map((n, i) => [n, problems[i]] as const).filter(([, p]) => p);
     if (bad.length) {
@@ -362,13 +393,12 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
       username: username.trim(),
       password: password || null,
       ...(certsChanged ? {
-        common_name: primary || null,
-        clear_common_name: !primary,
+        common_name: primary,
         extra_common_names: extrasOf(names, primary),
       } : {}),
       auto_deploy: auto,
       cleanup_old: cleanup,
-      verify_ports: portList(),
+      verify_ports: parsePorts(ports),
       enabled,
     });
   };
@@ -392,15 +422,16 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
 
   const reTrust = async () => {
     const fresh = await new Promise<KerioServer | null>(resolve => {
-      void show(close => <TrustDialog server={s} onClose={updated => { close(Boolean(updated)); resolve(updated); }} />);
+      const current = { ...s, tls_mode: trust.mode, tls_pin_sha256: trust.pin, tls_server_name: trust.name };
+      void show(close => <TrustDialog server={current} onClose={updated => { close(Boolean(updated)); resolve(updated); }} />);
     });
     if (fresh) setTrust({ mode: fresh.tls_mode, pin: fresh.tls_pin_sha256, name: fresh.tls_server_name });
   };
 
-  const servedSerial = bare(s.served?.serial);
+  const servedSerial = bareSerial(s.served?.serial);
 
   return (
-    <dialog ref={ref} className="wide server-dialog" onCancel={e => { e.preventDefault(); onClose(false); }}>
+    <dialog ref={ref} className="wide server-dialog" aria-label={s.name} onCancel={e => { e.preventDefault(); onClose(false); }}>
       <form noValidate onSubmit={submit}>
         <div>
           <h2>{s.name}</h2>
@@ -430,9 +461,9 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
                 const release = releases.get(n.toLowerCase());
                 const problem = problems[i];
                 const state = status.get(n.toLowerCase());
-                const days = daysUntil(release?.expiresOn ? release.expiresOn + 'T00:00:00Z' : null);
-                const isPrimary = primary.toLowerCase() === n.toLowerCase();
-                const onServer = isPrimary && Boolean(release) && bare(release?.serial) === servedSerial;
+                const days = daysFromDate(release?.expiresOn);
+                const isPrimary = sameName(primary, n);
+                const onServer = isPrimary && Boolean(release) && bareSerial(release?.serial) === servedSerial;
                 return (
                   <div key={n} className={'cert-row' + (isPrimary ? ' checked' : '') + (problem ? ' invalid' : '')} role="listitem">
                     <input type="radio" name="primary" checked={isPrimary} disabled={Boolean(problem)}
@@ -448,7 +479,7 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
                     </span>
                     <span className="pick-badges">
                       {isPrimary && <span className="badge accent">{t('по умолчанию')}</span>}
-                      {!problem && state && !certsChangedFor(n, s) && (
+                      {!problem && state && (
                         <span className={'badge ' + STATUS[state.status].tone} title={state.text}>
                           {onServer ? t('стоит на сервере') : STATUS[state.status].label}
                         </span>
@@ -474,22 +505,7 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
             {draftError && <p className="error">{draftError}</p>}
             {kmp.error && <p className="note">{kmp.error}</p>}
 
-            <div className="toggles">
-              <div className="setting-row compact">
-                <div className="setting-label">
-                  <span>{t('Ставить продлённые автоматически')}</span>
-                  <small>{t('Выключено — продления ждут письма и кнопки «Обновить» во вкладке «Обзор»; только что добавленный сертификат встаёт в очередь установки сразу.')}</small>
-                </div>
-                <label className="switch"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /><span /></label>
-              </div>
-              <div className="setting-row compact">
-                <div className="setting-label">
-                  <span>{t('Убирать старые версии сертификатов')}</span>
-                  <small>{t('После удачной установки — и по умолчанию, и по имени; одна предыдущая остаётся для ручного возврата. Убираются только свои версии: из Key Manager Plus или поставленные сервисом; купленные и положенные вручную не трогаются. Своя версия имени, что действует дольше новой, убирается всегда — иначе Kerio подавал бы её.')}</small>
-                </div>
-                <label className="switch"><input type="checkbox" checked={cleanup} onChange={e => setCleanup(e.target.checked)} /><span /></label>
-              </div>
-            </div>
+            <DeployToggles auto={auto} onAuto={setAuto} cleanup={cleanup} onCleanup={setCleanup} />
             <Field label={t('Порты для проверки после установки')}
               hint={t('Порты служб с TLS сразу (443, 993, 995, 465, 636): новый сертификат должен появиться на каждом')}>
               <input type="text" inputMode="numeric" placeholder="443, 993" value={ports} onChange={e => setPorts(e.target.value)} />
@@ -526,14 +542,16 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
                     : <>{t('Центр сертификации')}{trust.name && <>{t(', имя')} <span className="mono">{trust.name}</span></>}</>}
                 </small>
               </div>
-              <button type="button" onClick={reTrust}><Icon name="shield" />{t('Проверить заново')}</button>
+              <button type="button" disabled={url.trim() !== s.base_url} title={url.trim() !== s.base_url ? t('Сначала сохраните новый адрес') : undefined} onClick={reTrust}>
+                <Icon name="shield" />{t('Проверить заново')}
+              </button>
             </div>
             <div className="setting-row compact">
               <div className="setting-label">
                 <span>{t('Сервер включён')}</span>
                 <small>{t('Выключенный не проверяется и не обновляется; настройки и история сохраняются.')}</small>
               </div>
-              <label className="switch"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} /><span /></label>
+              <Switch label={t('Сервер включён')} checked={enabled} onChange={setEnabled} />
             </div>
           </>
         )}
@@ -545,53 +563,6 @@ function ServerDialog({ server: s, onClose }: { server: KerioServer; onClose: (d
         </div>
       </form>
     </dialog>
-  );
-}
-
-/** Состояние с сервера относится к сохранённой роли имени: сменили «по умолчанию» — значок до сохранения не показываем. */
-function certsChangedFor(name: string, s: KerioServer): boolean {
-  const wasPrimary = (s.common_name ?? '').toLowerCase() === name.toLowerCase();
-  const wasExtra = s.extras.some(e => e.common_name.toLowerCase() === name.toLowerCase());
-  return !wasPrimary && !wasExtra;
-}
-
-/** Установка с раскрываемым журналом шагов. */
-export function DeploymentCard({ d, showServer = false }: { d: Deployment; showServer?: boolean }) {
-  const [open, setOpen] = useState(d.outcome === 'running' || d.outcome === 'failed');
-  const meta = OUTCOME[d.outcome];
-
-  return (
-    <section className={'card deploy ' + meta.dot}>
-      <button type="button" className="deploy-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={'tl-dot ' + meta.dot} />
-        <div className="deploy-title">
-          <b>{showServer ? d.server_name + ' · ' : ''}{d.common_name}</b>
-          <span className="muted small">{fmtDateTime(d.started_at)} · {TRIGGER[d.trigger] ?? d.trigger}{duration(d) && ' · ' + duration(d)}</span>
-        </div>
-        <Status kind={meta.dot}>{meta.label}</Status>
-        <span className={'chev' + (open ? ' open' : '')}><Icon name="chevron" /></span>
-      </button>
-      {d.error && <p className="note">{d.error}</p>}
-      {open && d.steps && (
-        <ol className="steps">
-          {d.steps.map((step, i) => (
-            <li key={i} className={step.ok ? '' : 'bad'}>
-              <span className="step-name">{STEP[step.step] ?? step.step}</span>
-              <span className="step-msg">{step.message}</span>
-              <span className="step-time">{new Date(step.at).toLocaleTimeString(intlLocale())}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {open && (
-        <div className="facts small">
-          <span>{t('Серийный')} <b className="mono">{d.serial_number.toLowerCase()}</b></span>
-          {d.sha256 && <span>SHA-256 <b className="mono" title={fingerprint(d.sha256)}>{shortFingerprint(d.sha256)}</b></span>}
-          {d.kerio_certificate_id && <span>{t('В Kerio')} <b className="mono">{d.kerio_certificate_id}</b></span>}
-          {d.previous_kerio_certificate_id && <span>{t('Прежний')} <b className="mono">{d.previous_kerio_certificate_id}</b></span>}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -612,6 +583,7 @@ function ConnectWizard({ onClose }: { onClose: (id: string | null) => void }) {
   const [password, setPassword] = useState('');
   const [login, setLogin] = useState<LoginTest | null>(null);
   const [kmp, setKmp] = useState<string[]>([]);
+  const [kmpError, setKmpError] = useState('');
   const [commonName, setCommonName] = useState('');
   const [auto, setAuto] = useState(true);
   const [ports, setPorts] = useState('');
@@ -622,7 +594,7 @@ function ConnectWizard({ onClose }: { onClose: (id: string | null) => void }) {
     if (dialog && !dialog.open) dialog.showModal();
     api.get<KnownCertificate[]>('/api/keymanager/certificates')
       .then(list => setKmp([...new Set(list.map(c => c.common_name))].sort()))
-      .catch(() => setKmp([]));
+      .catch(err => { if (!(err instanceof Cancelled)) setKmpError(errorText(err)); });
     return () => dialog?.close();
   }, []);
 
@@ -676,8 +648,7 @@ function ConnectWizard({ onClose }: { onClose: (id: string | null) => void }) {
     }
 
     void guard(async () => {
-      const portList = splitList(ports).map(Number);
-      if (portList.some(p => !Number.isInteger(p) || p < 1 || p > 65535)) throw new Invalid(t('Порты — числа от 1 до 65535 через запятую.'));
+      const portList = parsePorts(ports);
       const created = await api.post<KerioServer>('/api/kerio/servers', {
         name: name.trim(),
         base_url: normalizedUrl(),
@@ -696,9 +667,10 @@ function ConnectWizard({ onClose }: { onClose: (id: string | null) => void }) {
   };
 
   const names = [...new Set([...(login?.suggested_common_names ?? []), ...kmp])];
+  const onServer = login?.certificates.find(c => c.type === 'ServerCertificate')?.subject;
 
   return (
-    <dialog ref={ref} className="wide wizard" onCancel={e => { e.preventDefault(); onClose(null); }}>
+    <dialog ref={ref} className="wide wizard" aria-label={t('Подключить Kerio Connect')} onCancel={e => { e.preventDefault(); onClose(null); }}>
       <form noValidate onSubmit={next}>
         <div>
           <h2>{t('Подключить Kerio Connect')}</h2>
@@ -753,14 +725,14 @@ function ConnectWizard({ onClose }: { onClose: (id: string | null) => void }) {
             <Field label={t('Сертификат из Key Manager Plus')} hint={t('Его новые выпуски будут ставиться на этот сервер; поменять можно карандашом в списке')}>
               <select value={commonName} onChange={e => setCommonName(e.target.value)}>
                 <option value="">{t('Не выбирать — только наблюдение за сроком')}</option>
-                {names.map(n => <option key={n} value={n}>{n}{login.suggested_common_names[0] === n ? t(' — стоит на сервере сейчас') : login.suggested_common_names.includes(n) ? t(' — покрывает имя на сервере') : ''}</option>)}
+                {names.map(n => <option key={n} value={n}>{n}{sameName(onServer, n) ? t(' — стоит на сервере сейчас') : login.suggested_common_names.includes(n) ? t(' — покрывает имя на сервере') : ''}</option>)}
               </select>
             </Field>
+            {kmpError && <p className="note">{kmpError}</p>}
             <Field label={t('Порты для проверки после установки')} hint={t('Найдены по тому же сертификату: новый должен появиться на каждом, иначе вернётся прежний')}>
               <input type="text" value={ports} onChange={e => setPorts(e.target.value)} />
             </Field>
-            <Check label={t('Ставить продлённый сертификат автоматически')} checked={auto} onChange={setAuto} />
-            <Check label={t('Убирать свои старые версии из хранилища Kerio (предыдущая остаётся, чужие не трогаются)')} checked={cleanup} onChange={setCleanup} />
+            <DeployToggles auto={auto} onAuto={setAuto} cleanup={cleanup} onCleanup={setCleanup} />
             <p className="muted small">{t('Кому писать о событиях сервера — во вкладке «Оповещения».')}</p>
           </>
         )}
@@ -785,7 +757,7 @@ function ProbeBox({ probe, warn, children }: { probe: Probe; warn?: boolean; chi
         <Icon name={warn ? 'alert' : 'shield'} />
         <div>
           <b className="mono">{probe.subject}</b>
-          <span className="muted small">{t('выдан {0} · до {1}{2}', probe.issuer, fmtDate(probe.not_after.slice(0, 10)), probe.self_signed && t(' · самоподписанный'))}</span>
+          <span className="muted small">{t('выдан {0} · до {1}{2}', probe.issuer, fmtDay(probe.not_after), probe.self_signed && t(' · самоподписанный'))}</span>
         </div>
       </div>
       <div className="mono small fp">SHA-256 {fingerprint(probe.sha256)}</div>

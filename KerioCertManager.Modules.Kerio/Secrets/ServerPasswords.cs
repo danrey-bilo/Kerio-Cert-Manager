@@ -1,3 +1,4 @@
+using KerioCertManager.Modules.KeyManager.Secrets;
 using KerioCertManager.Modules.Kerio.Domain;
 using Microsoft.EntityFrameworkCore;
 using Modules.Core.Data;
@@ -37,14 +38,6 @@ internal sealed class ServerPasswords(ISecretEnvelope envelope)
     }
 
     /// <summary>Снять пароль: сервер ждёт нового.</summary>
-    public static void Clear(KerioServer server)
-    {
-        ArgumentNullException.ThrowIfNull(server);
-
-        server.Password = null;
-        server.DataKey = null;
-    }
-
     /// <summary>Пароль для текущего адреса и логина сервера.</summary>
     public string Open(KerioServer server)
     {

@@ -92,8 +92,8 @@ internal static class CertificateNames
 
         if (проблемы.Count > 0)
         {
-            var текст = "Не сохранено: " + string.Join("; ", проблемы.Select(п =>
-                (п.Name.Length > 0 ? $"«{п.Name}» — " : string.Empty) + п.Reason + (п.Suggestion is { } с ? $" (возможно, {с})" : string.Empty))) + ".";
+            var текст = "Не сохранено. " + string.Join(' ', проблемы.Select(п =>
+                (п.Name.Length > 0 ? $"«{п.Name}» — " : string.Empty) + п.Reason + (п.Suggestion is { } с ? $" (возможно, {с})" : string.Empty) + "."));
 
             throw new AppException(
                 ErrorCodes.Validation,

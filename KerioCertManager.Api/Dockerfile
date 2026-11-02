@@ -39,6 +39,7 @@ COPY --from=build /publish .
 COPY --from=web /web/dist ./wwwroot
 # Без отладчика, профилировщика и диагностических сокетов.
 ENV DOTNET_EnableDiagnostics=0
+ENV ASPNETCORE_HTTP_PORTS=8001
 # Непривилегированный пользователь.
 USER $APP_UID
 ENTRYPOINT ["dotnet", "KerioCertManager.Api.dll"]

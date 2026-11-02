@@ -83,9 +83,9 @@ export function LinkPage({ kind }: { kind: Kind }) {
     <AuthCard title={title}>
       <form autoComplete="off" onSubmit={submit}>
         <p className="muted">{who || t('Придумайте новый пароль.')}</p>
-        <input type="password" placeholder={t('Новый пароль')} autoComplete="new-password" required autoFocus
+        <input type="password" aria-label={t('Новый пароль')} placeholder={t('Новый пароль')} autoComplete="new-password" required autoFocus
           value={password} onChange={e => setPassword(e.target.value)} />
-        <input type="password" placeholder={t('Ещё раз')} autoComplete="new-password" required
+        <input type="password" aria-label={t('Ещё раз')} placeholder={t('Ещё раз')} autoComplete="new-password" required
           value={repeat} onChange={e => setRepeat(e.target.value)} />
         {policy && <p className="muted small">{passwordRules(policy)}</p>}
         <ErrorText text={error} />

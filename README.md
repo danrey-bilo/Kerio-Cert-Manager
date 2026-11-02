@@ -121,7 +121,7 @@ Kerio Connect 10.0.6 quirks found on a live server and handled in code are descr
 
 <img src="docs/images/letter-en.png" alt="Installation report" width="620">
 
-A report for every installation, plus warnings: expiring soon (21, 7, 3, 1 days by default), expired, not updated
+A report on installations (a queue of several gets one summary e-mail), plus warnings: expiring soon (21, 7, 3, 1 days by default), expired, not updated
 automatically, installation failed or rolled back, server unreachable, Kerio rejected the password or the trust
 check, the certificate was changed by hand, the linked certificate disappeared from KMP. A warning that is still
 true is repeated no more often than the configured interval.
@@ -176,7 +176,7 @@ unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 kerio-cert-manager-image-vX.Y.Z.tar` from the main release archive):
 
 ```bash
-docker pull danreero/kerio_cert_manager:1.0.7
+docker pull danreero/kerio_cert_manager:1.0.8
 ```
 
 **3. Secrets.** The script creates the master encryption key and the two database passwords in `secrets/`.

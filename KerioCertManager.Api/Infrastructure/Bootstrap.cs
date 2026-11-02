@@ -35,6 +35,14 @@ internal static class Bootstrap
     /// <summary>Проба готовности для контейнера: в образе нет <c>curl</c>.</summary>
     public const string Health = "health";
 
+    private static readonly string[] Команды =
+    [
+        CreateSuperadmin, SetSuperadminPassword, ResetSuperadminTwoFactor, ResetAccess, RewrapKeys, ExportOpenApi, Migrate, VerifyAuditChain,
+    ];
+
+    /// <summary>Команды строкой — для сообщения об опечатке.</summary>
+    public static string Commands => string.Join(", ", Команды);
+
     /// <summary>Спросить у себя <c>/api/ready</c>: 0 — готов, 1 — нет.</summary>
     public static async Task<int> ProbeAsync()
     {
@@ -83,10 +91,7 @@ internal static class Bootstrap
     }
 
     /// <summary>Есть ли в аргументах команда, а не запуск сервера.</summary>
-    public static bool IsCommand(string[] args) =>
-        args.Length > 0
-        && args[0] is CreateSuperadmin or SetSuperadminPassword or ResetSuperadminTwoFactor or ResetAccess
-            or RewrapKeys or ExportOpenApi or Migrate or VerifyAuditChain;
+    public static bool IsCommand(string[] args) => args.Length > 0 && Команды.Contains(args[0], StringComparer.Ordinal);
 
     /// <summary>Отметка сброса доступа из окружения: HMAC-SHA256 от «адрес + пароль» под ключом из мастер-ключа.</summary>
     public static string ResetAccessMark(string masterKey, string email, string password)

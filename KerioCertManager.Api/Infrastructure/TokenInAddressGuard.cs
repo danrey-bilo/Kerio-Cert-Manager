@@ -11,7 +11,7 @@ internal sealed class TokenInAddressGuard(RequestDelegate next)
         ArgumentNullException.ThrowIfNull(context);
 
         if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
-            && context.Request.Path.Equals("/api/activation", StringComparison.OrdinalIgnoreCase))
+            && string.Equals(context.Request.Path.Value?.TrimEnd('/'), "/api/activation", StringComparison.OrdinalIgnoreCase))
         {
             throw new AppException(
                 ErrorCodes.MethodNotAllowed,

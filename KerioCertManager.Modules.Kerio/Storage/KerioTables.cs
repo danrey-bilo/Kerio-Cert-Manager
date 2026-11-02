@@ -57,6 +57,7 @@ internal sealed class KerioTables : IEntityConfigurationProvider
             строка.Property(с => с.TlsServerName).HasColumnName("tls_server_name").HasColumnType("text");
             строка.Property(с => с.TlsPinSha256).HasColumnName("tls_pin_sha256").HasColumnType("text");
             строка.Property(с => с.CommonName).HasColumnName("common_name").HasColumnType("text");
+            строка.Property(с => с.DefaultSelectedAt).HasColumnName("default_selected_at").HasColumnType("timestamptz");
             строка.Property(с => с.AutoDeploy).HasColumnName("auto_deploy").IsRequired();
             строка.Property(с => с.VerifyPorts).HasColumnName("verify_ports").HasColumnType("integer[]").IsRequired();
             строка.Property(с => с.NotifyEmails).HasColumnName("notify_emails").HasColumnType("text[]").IsRequired();
@@ -73,6 +74,7 @@ internal sealed class KerioTables : IEntityConfigurationProvider
             строка.Property(с => с.LastCheckAt).HasColumnName("last_check_at").HasColumnType("timestamptz");
             строка.Property(с => с.LastCheckError).HasColumnName("last_check_error").HasColumnType("text");
             строка.Property(с => с.CheckFailures).HasColumnName("check_failures").IsRequired();
+            строка.Property(с => с.TlsFailures).HasColumnName("tls_failures").IsRequired();
             строка.Property(с => с.AuthRejected).HasColumnName("auth_rejected").IsRequired();
             строка.Property(с => с.KerioVersion).HasColumnName("kerio_version").HasColumnType("text");
             строка.Property(с => с.KerioRole).HasColumnName("kerio_role").HasColumnType("text");

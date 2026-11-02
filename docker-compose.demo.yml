@@ -38,9 +38,9 @@ x-hardening: &hardening
 
 services:
   api:
-    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     restart: unless-stopped
-    stop_grace_period: 2m
+    stop_grace_period: 2m30s
     environment:
       <<: *service-env
       ASPNETCORE_HTTP_PORTS: "8001"
@@ -67,7 +67,7 @@ services:
         condition: service_started
 
   migrate:
-    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    image: ${KCM_DEMO_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     command: ["migrate"]
     restart: "no"
     environment:

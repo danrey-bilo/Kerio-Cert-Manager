@@ -7,8 +7,8 @@ namespace KerioCertManager.Modules.Kerio.Notifications;
 /// <summary>Сводное письмо об очереди установки: сколько встало, сколько нет и итог по каждому имени.</summary>
 internal static class QueueReport
 {
-    /// <summary>Установка из журнала: имя, исход, срок нового сертификата, шаг и причина отказа.</summary>
-    internal sealed record Entry(string CommonName, string Outcome, DateTimeOffset? NotAfter, string? FailedStep, string? Error);
+    /// <summary>Установка из журнала: имя, исход, срок нового сертификата, причина отказа.</summary>
+    internal sealed record Entry(string CommonName, string Outcome, DateTimeOffset? NotAfter, string? Error);
 
     /// <summary>Строка таблицы письма: имя, итог, подробности.</summary>
     internal sealed record Row(string CommonName, string Outcome, string Details);
@@ -53,11 +53,9 @@ internal static class QueueReport
             у.CommonName,
             "Установлен",
             у.NotAfter is { } до ? $"Действует до {до.ToUniversalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)} UTC" : "—"),
-        DeployOutcomes.RolledBack => new Row(у.CommonName, "Возвращён прежний", Причина(у)),
-        _ => new Row(у.CommonName, "Не установлен", Причина(у)),
+        DeployOutcomes.RolledBack => new Row(у.CommonName, "Возвращён прежний", у.Error ?? "—"),
+        _ => new Row(у.CommonName, "Не установлен", у.Error ?? "—"),
     };
-
-    private static string Причина(Entry у) => у.FailedStep is { } шаг ? $"{шаг}: {у.Error ?? "—"}" : у.Error ?? "—";
 
     private static string Число(int n) => n.ToString(CultureInfo.InvariantCulture);
 }

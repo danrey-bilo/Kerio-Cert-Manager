@@ -21,12 +21,12 @@ public sealed class QueueReportTests
         var сводка = QueueReport.Build(
             "Kerio A",
             [
-                new("a.demo.local", DeployOutcomes.Succeeded, До, null, null),
-                new("b.demo.local", DeployOutcomes.Failed, null, "import", "Kerio отказал"),
-                new("c.demo.local", DeployOutcomes.RolledBack, null, "verify", "Новый не подаётся"),
-                new("B.demo.local", DeployOutcomes.Succeeded, До, null, null),
-                new("d.demo.local", DeployOutcomes.DryRun, null, null, null),
-                new("e.demo.local", DeployOutcomes.Running, null, null, null),
+                new("a.demo.local", DeployOutcomes.Succeeded, До, null),
+                new("b.demo.local", DeployOutcomes.Failed, null, "Kerio отказал"),
+                new("c.demo.local", DeployOutcomes.RolledBack, null, "Новый не подаётся"),
+                new("B.demo.local", DeployOutcomes.Succeeded, До, null),
+                new("d.demo.local", DeployOutcomes.DryRun, null, null),
+                new("e.demo.local", DeployOutcomes.Running, null, null),
             ]).ShouldNotBeNull();
 
         сводка.Installed.ShouldBe(2);
@@ -36,7 +36,7 @@ public sealed class QueueReportTests
         сводка.Message.ShouldBe("Очередь установки пройдена. Установлено и подтверждено по TLS: 2. Не удалось: 1.");
         сводка.Rows.ShouldBe(
         [
-            new("c.demo.local", "Возвращён прежний", "verify: Новый не подаётся"),
+            new("c.demo.local", "Возвращён прежний", "Новый не подаётся"),
             new("a.demo.local", "Установлен", "Действует до 30.01.2027 12:00 UTC"),
             new("B.demo.local", "Установлен", "Действует до 30.01.2027 12:00 UTC"),
         ]);
@@ -45,7 +45,7 @@ public sealed class QueueReportTests
     [Fact]
     public void Все_встали_без_значка_уровень_сведений()
     {
-        var сводка = QueueReport.Build("Kerio A", [new("a.demo.local", DeployOutcomes.Succeeded, null, null, null)]).ShouldNotBeNull();
+        var сводка = QueueReport.Build("Kerio A", [new("a.demo.local", DeployOutcomes.Succeeded, null, null)]).ShouldNotBeNull();
 
         сводка.Level.ShouldBe(AlertLevel.Info);
         сводка.Title.ShouldBe("Очередь установки на «Kerio A» пройдена: установлено 1 из 1");
@@ -54,7 +54,7 @@ public sealed class QueueReportTests
 
     [Fact]
     public void Только_пробные_прогоны_сводки_нет() =>
-        QueueReport.Build("Kerio A", [new("a.demo.local", DeployOutcomes.DryRun, null, null, null)]).ShouldBeNull();
+        QueueReport.Build("Kerio A", [new("a.demo.local", DeployOutcomes.DryRun, null, null)]).ShouldBeNull();
 
     /// <summary>Тема, текст и таблица сводки переводятся целиком — со значком впереди и с кириллицей в имени сервера.</summary>
     [Theory]
@@ -66,10 +66,9 @@ public sealed class QueueReportTests
         var сводка = QueueReport.Build(
             сервер,
             [
-                new("a.demo.local", DeployOutcomes.Succeeded, До, null, null),
-                new("b.demo.local", DeployOutcomes.Failed, null, "import",
-                    "Kerio отказал (ConnectCertificate.importCertificate): Emulated failure. [код 1000]"),
-                new("c.demo.local", DeployOutcomes.RolledBack, null, "verify", null),
+                new("a.demo.local", DeployOutcomes.Succeeded, До, null),
+                new("b.demo.local", DeployOutcomes.Failed, null, "Kerio отказал (ConnectCertificate.importCertificate): Emulated failure. [код 1000]"),
+                new("c.demo.local", DeployOutcomes.RolledBack, null, null),
             ]).ShouldNotBeNull();
 
         тексты.Translate(сводка.Title, "en").ShouldBe($"🟠 Installation queue on “{сервер}” done: 1 of 3 installed");
@@ -79,8 +78,8 @@ public sealed class QueueReportTests
         var en = сводка.Rows.Select(r => (тексты.Translate(r.Outcome, "en"), тексты.Translate(r.Details, "en"))).ToList();
         en.ShouldBe(
         [
-            ("Not installed", "import: Kerio refused (ConnectCertificate.importCertificate): Emulated failure. [code 1000]"),
-            ("Rolled back to previous", "verify: —"),
+            ("Not installed", "Kerio refused (ConnectCertificate.importCertificate): Emulated failure. [code 1000]"),
+            ("Rolled back to previous", "—"),
             ("Installed", "Valid until 30.01.2027 12:00 UTC"),
         ]);
 

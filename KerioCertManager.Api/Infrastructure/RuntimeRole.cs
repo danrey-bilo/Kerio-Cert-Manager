@@ -26,8 +26,11 @@ public static partial class RuntimeRole
         "GRANT USAGE ON SCHEMA public TO %1$I",
         "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %1$I",
         "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %1$I",
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %1$I",
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %1$I",
+
+        // ⚠ Без прав по умолчанию: новая партиция журнала создаётся владельцем и досталась бы роли с UPDATE и DELETE.
+        // Таблицы новых миграций получают права строкой выше — migrate выполняется при каждом обновлении.
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM %1$I",
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %1$I",
     ];
 
     /// <summary>Имя и пароль роли сервиса или <c>null</c>, если роль не задана (разработка, тесты).</summary>

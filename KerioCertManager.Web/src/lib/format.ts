@@ -9,6 +9,9 @@ export const fmtDateTime = (iso: string | null | undefined) => (iso ? DATE_TIME.
 
 export const fmtDate = (ymd: string | null | undefined) => (ymd ? DATE.format(new Date(ymd + 'T00:00:00')) : '—');
 
+/** Дата момента времени (ISO) — в часовом поясе браузера. */
+export const fmtDay = (iso: string | null | undefined) => (iso ? DATE.format(new Date(iso)) : '—');
+
 export function passwordRules(p: PasswordPolicy): string {
   const parts = [t('от {0} символов', p.min_length)];
   if (p.require_uppercase) parts.push(t('заглавная'));

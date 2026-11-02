@@ -72,6 +72,24 @@ public sealed class CertificateMaterial : IDisposable
         + $"пароль {(Passphrase is null ? "нет" : "есть")})";
 }
 
+/// <summary>Какой выпуск имени считается текущим — правило одно для всех модулей.</summary>
+public static class SourceReleases
+{
+    /// <summary>Замеченный позже всех; при равенстве — дольше действующий, затем больший серийный.</summary>
+    public static SourceCertificate? Pick(IEnumerable<SourceCertificate> releases) =>
+        releases
+            .OrderByDescending(с => с.FirstSeenAt)
+            .ThenByDescending(с => с.ExpiresOn ?? DateOnly.MinValue)
+            .ThenByDescending(с => с.SerialNumber, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    /// <summary>Текущие выпуски по Common Name (без учёта регистра).</summary>
+    public static IReadOnlyDictionary<string, SourceCertificate> Current(IEnumerable<SourceCertificate> releases) =>
+        releases
+            .GroupBy(с => с.CommonName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(г => г.Key, г => Pick(г)!, StringComparer.OrdinalIgnoreCase);
+}
+
 /// <summary>Отказ источника сертификатов: KMP недоступен, отказал или прислал не то.</summary>
 public sealed class CertificateSourceException(string message, Exception? inner = null) : Exception(message, inner);
 
@@ -80,6 +98,9 @@ public interface ICertificateSource
 {
     /// <summary>Опросить KMP и обновить снимок; неудача — в итоге, не исключением.</summary>
     Task<SourceRefresh> RefreshAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Включена и настроена ли интеграция: выключенная — ничего не отдаёт на установку, даже из старого снимка.</summary>
+    Task<bool> AvailableAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Все выпуски из последнего удачного опроса.</summary>
     Task<IReadOnlyList<SourceCertificate>> ListAsync(CancellationToken cancellationToken = default);

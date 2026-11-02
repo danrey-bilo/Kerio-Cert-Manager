@@ -63,7 +63,7 @@ export function App() {
 
 function Panel() {
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' });
-  const { show } = useOverlay();
+  const { show, closeAll } = useOverlay();
 
   /** Настройка фактора и смена пароля — раньше всего. */
   const enter = useCallback(async () => {
@@ -84,16 +84,17 @@ function Panel() {
   const logout = useCallback(async () => {
     await api.post('/api/auth/logout').catch(() => null);
     forget();
+    closeAll();
     setScreen({ kind: 'login' });
-  }, []);
+  }, [closeAll]);
 
   useEffect(() => {
     connect({
-      signedOut: message => setScreen({ kind: 'login', message }),
+      signedOut: message => { closeAll(); setScreen({ kind: 'login', message }); },
       confirmIdentity: minutes => show(close => <StepUpDialog minutes={minutes} onClose={close} />),
     });
     void refresh().then(ok => (ok ? enter() : setScreen({ kind: 'login' })));
-  }, [enter, show]);
+  }, [enter, show, closeAll]);
 
   switch (screen.kind) {
     case 'loading':
@@ -194,10 +195,7 @@ function Shell({ me, onRenamed, onLogout }: { me: Me; onRenamed: () => void; onL
           </a>
           <Menu
             items={[
-              { text: t('Пользователи'), action: () => { location.hash = '#/users'; } },
-              { text: t('Журнал действий'), action: () => { location.hash = '#/audit'; } },
-              { text: t('Безопасность'), action: () => { location.hash = '#/security'; } },
-              { text: t('Профиль'), action: () => { location.hash = '#/profile'; } },
+              ...MORE.map(([key, title]) => ({ text: title, action: () => { location.hash = '#/' + key; } })),
               { text: t('Выйти'), action: onLogout, danger: true },
             ]}
           />

@@ -1,25 +1,25 @@
 import { t } from '../lib/i18n';
 import type { DotKind } from '../ui/bits';
-import type { CertState, Deployment, KerioServer, Origin, Outcome, ServerStatus, StoreCert } from './types';
+import type { CertState, Deployment, KerioServer, Origin, Outcome, ServerStatus, SourceCert, StoreCert } from './types';
 
-/** Статус сервера: точка, короткое слово, важность для сортировки (меньше — важнее). */
-export const STATUS: Record<ServerStatus, { dot: DotKind; label: string; rank: number; tone: string }> = {
-  expired: { dot: 'err', label: t('Истёк'), rank: 0, tone: 'err' },
-  error: { dot: 'err', label: t('Ошибка'), rank: 1, tone: 'err' },
-  deploy_failed: { dot: 'err', label: t('Не установлен'), rank: 2, tone: 'err' },
-  name_stale: { dot: 'err', label: t('Подаётся прежний'), rank: 2, tone: 'err' },
-  update_pending: { dot: 'warn', label: t('Ждёт установки'), rank: 3, tone: 'warn' },
-  expiring: { dot: 'warn', label: t('Скоро истекает'), rank: 4, tone: 'warn' },
-  unchecked: { dot: '', label: t('Проверяется'), rank: 5, tone: '' },
-  unbound: { dot: '', label: t('Наблюдение'), rank: 6, tone: '' },
-  ok: { dot: 'ok', label: t('В порядке'), rank: 7, tone: 'ok' },
-  disabled: { dot: '', label: t('Отключён'), rank: 8, tone: '' },
+/** Статус сервера: короткое слово, важность для сортировки (меньше — важнее), цвет. */
+export const STATUS: Record<ServerStatus, { label: string; rank: number; tone: string }> = {
+  expired: { label: t('Истёк'), rank: 0, tone: 'err' },
+  error: { label: t('Ошибка'), rank: 1, tone: 'err' },
+  deploy_failed: { label: t('Не установлен'), rank: 2, tone: 'err' },
+  name_stale: { label: t('Подаётся прежний'), rank: 2, tone: 'err' },
+  update_pending: { label: t('Ждёт установки'), rank: 3, tone: 'warn' },
+  expiring: { label: t('Скоро истекает'), rank: 4, tone: 'warn' },
+  unchecked: { label: t('Проверяется'), rank: 5, tone: '' },
+  unbound: { label: t('Наблюдение'), rank: 6, tone: '' },
+  ok: { label: t('В порядке'), rank: 7, tone: 'ok' },
+  disabled: { label: t('Отключён'), rank: 8, tone: '' },
 };
 
 export const OUTCOME: Record<Outcome, { dot: DotKind; label: string }> = {
   running: { dot: 'warn', label: t('Выполняется') },
   succeeded: { dot: 'ok', label: t('Установлен') },
-  failed: { dot: 'err', label: t('Ошибка') },
+  failed: { dot: 'err', label: t('Не установлен') },
   rolled_back: { dot: 'warn', label: t('Возвращён прежний') },
   dry_run: { dot: '', label: t('Пробный прогон') },
 };
@@ -61,10 +61,11 @@ export const shortFingerprint = (hex: string | null | undefined) =>
 /** Хост и порт из адреса. */
 export const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-/** Сколько дней до даты (ISO); null — даты нет. */
-export function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  return Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000);
+/** Сколько календарных дней (UTC, как на сервере) до даты ГГГГ-ММ-ДД; null — даты нет. */
+export function daysFromDate(ymd: string | null | undefined): number | null {
+  if (!ymd) return null;
+  const DAY = 86_400_000;
+  return Math.floor(new Date(ymd + 'T00:00:00Z').getTime() / DAY) - Math.floor(Date.now() / DAY);
 }
 
 /** «через 12 дн.», «истёк 3 дн. назад», «сегодня». */
@@ -75,10 +76,10 @@ export function daysText(days: number | null): string {
   return t('{0} дн.', days);
 }
 
-/** Цвет срока: меньше недели — красный, меньше порога — оранжевый. */
+/** Цвет срока: меньше недели (и не больше порога) — красный, меньше порога — оранжевый. */
 export function daysTone(days: number | null, warning: number): '' | 'ok' | 'warn' | 'err' {
   if (days === null) return '';
-  if (days < 7) return 'err';
+  if (days < Math.min(7, warning)) return 'err';
   if (days <= warning) return 'warn';
   return 'ok';
 }
@@ -100,10 +101,32 @@ export function ago(iso: string | null | undefined): string {
   return t('{0} дн. назад', Math.round(seconds / 86_400));
 }
 
+/** Серийный номер для сравнения: только значащие шестнадцатеричные цифры. */
+export const bareSerial = (serial: string | null | undefined) => (serial ?? '').replace(/[^0-9a-f]/gi, '').replace(/^0+/, '').toLowerCase();
+
+/** Одно и то же ли имя сертификата. */
+export const sameName = (a: string | null | undefined, b: string | null | undefined) => Boolean(a && b) && a!.toLowerCase() === b!.toLowerCase();
+
+/** Сертификат KMP, который сервис ведёт на сервере: по умолчанию или своего имени. */
+export interface Managed {
+  name: string;
+  isDefault: boolean;
+  status: ServerStatus;
+  text: string;
+  source: SourceCert | null;
+}
+
+export function managedCerts(s: KerioServer): Managed[] {
+  return [
+    ...(s.common_name ? [{ name: s.common_name, isDefault: true, status: s.status, text: s.status_text, source: s.source }] : []),
+    ...s.extras.map(e => ({ name: e.common_name, isDefault: false, status: e.status, text: e.status_text, source: e.source })),
+  ];
+}
+
 /** Адреса из строки через запятую, пробел или перевод строки. */
 export const splitList = (text: string) => text.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
 
-export type Connection = 'ok' | 'checking' | 'nopass' | 'auth' | 'forbidden' | 'down' | 'off';
+type Connection = 'ok' | 'checking' | 'nopass' | 'auth' | 'forbidden' | 'down' | 'off';
 
 /** Связь с сервером одним словом: только «можем ли мы до него достучаться и войти». */
 export function connection(s: KerioServer): { kind: Connection; dot: DotKind; label: string; text: string } {
@@ -125,6 +148,9 @@ export function connection(s: KerioServer): { kind: Connection; dot: DotKind; la
   };
 }
 
+/** Сколько включённых серверов сейчас без связи или без входа. */
+export const downCount = (servers: KerioServer[]) => servers.filter(s => s.enabled && connection(s).dot === 'err').length;
+
 export const ORIGIN: Record<Origin, { label: string; tone: string; hint: string }> = {
   managed: { label: t('Из KMP · ведёт Kerio Cert Manager'), tone: 'ok', hint: t('Привязанный сертификат Key Manager Plus: продления ставятся сами') },
   kmp: { label: t('Есть в KMP'), tone: 'info', hint: t('Выпуск из Key Manager Plus, но сервер к нему не привязан') },
@@ -135,7 +161,7 @@ export const ORIGIN: Record<Origin, { label: string; tone: string; hint: string 
 
 export const CERT_STATE: Record<CertState, { dot: DotKind; label: string }> = {
   expired: { dot: 'err', label: t('Истёк') },
-  expiring: { dot: 'warn', label: t('Истекает') },
+  expiring: { dot: 'warn', label: t('Скоро истекает') },
   ok: { dot: 'ok', label: t('В порядке') },
   unknown: { dot: '', label: t('Срок неизвестен') },
 };
@@ -150,8 +176,10 @@ export const EVENT: Record<string, string> = {
   renewal_pending: t('Ждёт ручной установки'),
   deployed: t('Установлен'),
   deploy_failed: t('Не установлен'),
+  name_stale: t('Подаётся прежний'),
   rolled_back: t('Возвращён прежний'),
   queue_summary: t('Сводка очереди'),
+  alerts_digest: t('Сводка предупреждений'),
   unreachable: t('Недоступен'),
   auth_rejected: t('Пароль отвергнут'),
   not_admin: t('Нет прав'),

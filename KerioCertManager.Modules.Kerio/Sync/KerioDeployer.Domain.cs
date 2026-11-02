@@ -76,6 +76,25 @@ internal sealed partial class KerioDeployer
                 выгрузка.Dispose();
             }
 
+            // ⚠ Как у сертификата по умолчанию: KMP мог заново показать старую пару — сам сервис откат не делает.
+            var запись = server.Extras.FirstOrDefault(д => string.Equals(д.CommonName, выпуск.CommonName, StringComparison.OrdinalIgnoreCase));
+            var было = server.Store
+                .Where(з => ExtraPlanner.Того(з, выпуск.CommonName) && запись?.Installed(з.Serial) == true)
+                .Max(з => з.NotBefore);
+
+            if (было is { } своя && пара.NotBefore < своя.AddMinutes(-1))
+            {
+                if (!request.Manual)
+                {
+                    throw new DeployStepException(
+                        DeploySteps.Validate,
+                        $"Выпуск из Key Manager Plus ({пара.NotBefore:yyyy-MM-dd}) старше установленного ({своя:yyyy-MM-dd}): "
+                        + "сам сервис откат не делает. Установите вручную, если это намеренно.");
+                }
+
+                await Отметить(DeploySteps.Validate, "Выпуск старше установленного — ставится по решению администратора.");
+            }
+
             await Отметить(
                 DeploySteps.Validate,
                 $"Сертификат {пара.Subject} от {пара.Issuer}, до {пара.NotAfter:yyyy-MM-dd}, SHA-256 {Fingerprints.Pretty(пара.Sha256)}."
@@ -105,9 +124,9 @@ internal sealed partial class KerioDeployer
 
             await Отметить(
                 DeploySteps.Inventory,
-                $"В хранилище Kerio сертификатов: {хранилище.Count}. По умолчанию подаётся "
-                + (поУмолчанию is null ? "сертификат, которого нет в хранилище" : $"«{поУмолчанию}»")
-                + (уже is null ? "." : $"; новый уже в хранилище как «{уже}»."));
+                $"В хранилище Kerio сертификатов: {хранилище.Count}."
+                + (поУмолчанию is null ? " По умолчанию подаётся сертификат, которого нет в хранилище." : $" По умолчанию подаётся «{поУмолчанию}».")
+                + (уже is null ? string.Empty : $" Новый уже в хранилище как «{уже}»."));
 
             if (поУмолчанию is null && !string.Equals(поУмолчаниюSha, пара.Sha256, StringComparison.Ordinal))
             {
@@ -157,9 +176,11 @@ internal sealed partial class KerioDeployer
 
                 if (поУмолчанию is not null)
                 {
-                    var сейчас = await ПоУмолчаниюAsync(server, cancellationToken);
+                    // ПоУмолчаниюAsync пережидает перезапуск HTTPS: не ответил и после него — знать, что подаётся, неоткуда.
+                    var сейчас = await ПоУмолчаниюAsync(server, cancellationToken)
+                        ?? throw new DeployStepException(DeploySteps.RestoreDefault, "После импорта порт администрирования не ответил по TLS — проверьте сертификат по умолчанию вручную.");
 
-                    if (сейчас is null || string.Equals(сейчас, поУмолчаниюSha, StringComparison.Ordinal))
+                    if (string.Equals(сейчас, поУмолчаниюSha, StringComparison.Ordinal))
                     {
                         вернули = true;
                         await Отметить(DeploySteps.RestoreDefault, "Сертификат по умолчанию не изменился.");
@@ -185,7 +206,6 @@ internal sealed partial class KerioDeployer
                 await Отметить(DeploySteps.ImportCertificate, $"Сертификат уже в хранилище Kerio («{уже}») — повторный импорт не нужен.");
             }
 
-            var запись = server.Extras.FirstOrDefault(д => string.Equals(д.CommonName, выпуск.CommonName, StringComparison.OrdinalIgnoreCase));
             var номераKmp = await СвоиНомераAsync(
                 выпуск.CommonName, [запись?.InstalledSerial, .. запись?.PreviousSerials ?? []], cancellationToken);
 

@@ -49,7 +49,7 @@ internal sealed class SyncWorker(IServiceScopeFactory scopes, SourceWakeup wakeu
 
                 var опросить = опрошено is not { } когда || clock.GetUtcNow() - когда >= интервал;
 
-                очередь = await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(опросить, stoppingToken);
+                очередь = await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(full: опросить, stoppingToken);
 
                 if (опросить)
                 {

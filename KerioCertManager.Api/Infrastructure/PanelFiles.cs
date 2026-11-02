@@ -85,8 +85,6 @@ internal static partial class PanelFiles
     {
         var headers = context.Response.Headers;
         headers.ContentSecurityPolicy = Csp;
-        headers.XContentTypeOptions = "nosniff";
         headers.XFrameOptions = "DENY";
-        headers["Referrer-Policy"] = "no-referrer";
     }
 }

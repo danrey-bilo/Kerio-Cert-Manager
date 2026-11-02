@@ -46,6 +46,7 @@ jobs:
         run: dotnet build KerioCertManager.slnx -c Release
 
       - name: Уязвимые пакеты NuGet
+        shell: bash
         run: |
           dotnet list KerioCertManager.slnx package --vulnerable --include-transitive | tee vulnerable.txt
           ! grep -qE "(High|Critical)" vulnerable.txt

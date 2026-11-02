@@ -1,11 +1,11 @@
 
-export type Device = 'mobile' | 'desktop';
+type Device = 'mobile' | 'desktop';
 
 interface UserAgentData {
   mobile?: boolean;
 }
 
-export function detectDevice(): Device {
+function detectDevice(): Device {
   const data = (navigator as Navigator & { userAgentData?: UserAgentData }).userAgentData;
   if (data && typeof data.mobile === 'boolean') return data.mobile ? 'mobile' : 'desktop';
   return /Android.+Mobile|iPhone|iPod|Windows Phone|IEMobile|Opera Mini|Mobi/i.test(navigator.userAgent)

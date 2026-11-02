@@ -52,10 +52,13 @@ internal sealed class KerioServer
     /// <summary>Сертификат по умолчанию из Key Manager Plus (Common Name); <c>null</c> — сервис его не меняет.</summary>
     public string? CommonName { get; set; }
 
+    /// <summary>Когда выбран сертификат по умолчанию: от этого считается «не обновился сам»; <c>null</c> — выбран при подключении.</summary>
+    public DateTimeOffset? DefaultSelectedAt { get; set; }
+
     /// <summary>Сертификаты своих имён из Key Manager Plus: Kerio подаёт их по SNI, сервис держит их свежими.</summary>
     public List<ExtraCertificate> Extras { get; set; } = [];
 
-    /// <summary>Ставить продлённый сам; иначе — только письмо и кнопка «Установить».</summary>
+    /// <summary>Ставить продлённый сам; иначе продление ждёт письма и кнопки «Обновить», первая установка идёт и так.</summary>
     public bool AutoDeploy { get; set; } = true;
 
     /// <summary>Порты служб, на которых проверять поданный сертификат после установки, кроме порта администрирования.</summary>
@@ -83,8 +86,11 @@ internal sealed class KerioServer
     /// <summary><c>null</c> — проверка удалась.</summary>
     public string? LastCheckError { get; set; }
 
-    /// <summary>Подряд неудачных проверок — письмо о недоступности не с первого сбоя.</summary>
+    /// <summary>Подряд отказов API Kerio — письмо не с первого сбоя.</summary>
     public int CheckFailures { get; set; }
+
+    /// <summary>Подряд проверок без ответа по TLS — письмо о недоступности не с первого сбоя.</summary>
+    public int TlsFailures { get; set; }
 
     /// <summary>Kerio отверг логин или пароль: сам сервис больше не входит, пока их не сменят или не нажмут «Проверить».</summary>
     public bool AuthRejected { get; set; }
@@ -180,6 +186,58 @@ internal sealed class KerioServer
     /// <summary>Все имена сертификатов KMP, которые сервис ведёт на этом сервере: по умолчанию и свои.</summary>
     public IReadOnlyList<string> ManagedNames() =>
         [.. (CommonName is null ? [] : new[] { CommonName }).Concat(Extras.Select(д => д.CommonName))];
+
+    /// <summary>Забыть установку сертификата по умолчанию: имя сменили или сняли, прежнее к новому не относится.</summary>
+    public void ForgetDefaultInstall()
+    {
+        InstalledSerial = null;
+        InstalledSha256 = null;
+        InstalledNotBefore = null;
+        InstalledNotAfter = null;
+        InstalledAt = null;
+        InstalledKerioId = null;
+        PreviousSerials = [];
+        LastDeployError = null;
+        FailedSerial = null;
+        DeployFailures = 0;
+        NextAttemptAt = null;
+        DryRunSerial = null;
+    }
+
+    /// <summary>
+    /// Сервер переехал на другой адрес: всё, что известно о прежнем, к новому не относится. ⚠ Поставленный сервисом
+    /// сертификат доверен при входе сверх режима — но только по тому адресу, куда его ставили.
+    /// </summary>
+    public void ForgetAddress()
+    {
+        ForgetDefaultInstall();
+
+        foreach (var доп in Extras)
+        {
+            доп.ForgetInstall();
+        }
+
+        ServedSha256 = null;
+        ServedSubject = null;
+        ServedIssuer = null;
+        ServedSerial = null;
+        ServedNotBefore = null;
+        ServedNotAfter = null;
+        ServedByName = new Dictionary<string, string>(StringComparer.Ordinal);
+        Store = [];
+        StoreCheckedAt = null;
+        LastCheckAt = null;
+        LastCheckError = null;
+        CheckFailures = 0;
+        TlsFailures = 0;
+        KerioVersion = null;
+        KerioRole = null;
+        KerioCertificateCount = null;
+        LastDeployAt = null;
+        InstallQueue = [];
+        QueueReportSince = null;
+        Alerts = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+    }
 }
 
 /// <summary>Сертификат своего имени на сервере: Kerio подаёт его по SNI, сервис ставит продления в хранилище.</summary>
@@ -222,6 +280,23 @@ internal sealed class ExtraCertificate
 
     /// <summary>Выпуск поставлен сервисом: текущий или прежний.</summary>
     public bool Installed(string? serial) => InstalledHistory.Contains(InstalledSerial, PreviousSerials, serial);
+
+    /// <summary>Забыть установку: сервер переехал на другой адрес.</summary>
+    public void ForgetInstall()
+    {
+        InstalledSerial = null;
+        InstalledSha256 = null;
+        InstalledNotAfter = null;
+        InstalledAt = null;
+        KerioId = null;
+        LastDeployAt = null;
+        LastError = null;
+        FailedSerial = null;
+        Failures = 0;
+        NextAttemptAt = null;
+        DryRunSerial = null;
+        PreviousSerials = [];
+    }
 }
 
 /// <summary>Какие выпуски сервис поставил: текущий и прежние серийные — по ним уборка отличает свои версии от чужих.</summary>

@@ -1,0 +1,43 @@
+using System.Text.RegularExpressions;
+using KerioCertManager.Modules.Kerio.Localization;
+
+namespace KerioCertManager.Modules.Kerio.Tests;
+
+/// <summary>Составные тексты сервера: то, что собирается по кускам и доходит до администратора в письме.</summary>
+public sealed class ServerTextsCompositeTests
+{
+    private static readonly Regex Кириллица = new("[А-Яа-яЁёІіЇїЄєҐґ]");
+
+    private static readonly ServerTexts Тексты = ServerTexts.FromAssembly();
+
+    [Theory]
+    [InlineData("За 60 с сервер не начал подавать новый сертификат. Порт 443 подаёт новый. Порт 993 подаёт mail.example.com до 2026-12-01.")]
+    [InlineData("За 60 с сервер не начал подавать новый сертификат. Порт 443 подаёт mail.example.com до 2026-12-01. Новый сертификат лежит в хранилище Kerio; чтобы он подавался для mail.example.com, перезапустите службу Kerio Connect.")]
+    [InlineData("В хранилище Kerio сертификатов: 5. Сейчас подаётся «server3». Новый уже в хранилище как «server7».")]
+    [InlineData("В хранилище Kerio сертификатов: 5. Подаётся сертификат, которого нет в хранилище (встроенный или неизвестный).")]
+    [InlineData("В хранилище Kerio сертификатов: 5. По умолчанию подаётся сертификат, которого нет в хранилище.")]
+    [InlineData("Сертификат mail.example.com от R13, до 2026-12-01, SHA-256 AA:BB. Промежуточных в цепочке нет. ⚠ Цепочка до корня не собрана — клиенты могут не доверять серверу.")]
+    [InlineData("Сертификат mail.example.com от R13, до 2026-12-01, SHA-256 AA:BB. Промежуточных в цепочке: 2.")]
+    [InlineData("Не сохранено. «mail.example.com» — нет в Key Manager Plus — проверьте написание. «vpn.example.com» — указан дважды.")]
+    [InlineData("Kerio принял новый сертификат, но сервер не начал подавать его на всех портах. Сервис вернул прежний и проверил, что он снова подаётся. Повторить — кнопкой «Обновить» у сертификата во вкладке «Обзор».")]
+    [InlineData("Проверка Kerio не удалась: timeout. Проверок подряд с ошибкой: 3.")]
+    public void Перевод_без_кириллицы(string текст) => Кириллица.IsMatch(Тексты.Translate(текст, "en")).ShouldBeFalse(Тексты.Translate(текст, "en"));
+
+    /// <summary>⚠ Имя в кавычках — данные: сервер «Журнал» в письме не становится «Log».</summary>
+    [Theory]
+    [InlineData("Kerio «Журнал» не отвечает", "«Журнал»")]
+    [InlineData("«Журнал»: предупреждений — 3", "“Журнал”")]
+    public void Имя_в_кавычках_не_переводится(string текст, string имя)
+    {
+        var перевод = Тексты.Translate(текст, "en");
+
+        if (имя.Contains('«', StringComparison.Ordinal))
+        {
+            перевод.ShouldContain("Журнал");
+        }
+        else
+        {
+            перевод.ShouldContain(имя);
+        }
+    }
+}

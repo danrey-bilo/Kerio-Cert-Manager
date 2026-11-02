@@ -26,6 +26,7 @@ public sealed class KeyManagerApi(KerioCertManagerHost host) : IAsyncLifetime
     {
         host.User.SignIn();
         host.Settings.Values.Clear();
+        host.Settings.Values["keymanager.base_url"] = "https://kmp.example.test:6565";
         return ValueTask.CompletedTask;
     }
 

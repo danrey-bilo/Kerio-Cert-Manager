@@ -71,6 +71,20 @@ public sealed class OverviewAlertsTests
         SyncCycle.Просрочка(сервер, план, 24, 21, Сейчас).ShouldBeNull();
     }
 
+    /// <summary>Свежий выпуск подаётся по умолчанию, а для своего имени Kerio держит прежний — нужен перезапуск службы.</summary>
+    [Fact]
+    public void Для_своего_имени_подаётся_прежний()
+    {
+        var сервер = Сервер(installed: "aa", served: "aa");
+        сервер.LastCheckAt = Сейчас;
+        сервер.InstalledSha256 = "SHAaa";
+        сервер.ServedSha256 = "SHAaa";
+        сервер.ServedByName[Sni.For(Имя)!] = "SHAold";
+
+        ServerView.Status(сервер, Выпуск("aa", 60), 21, Сейчас).Code.ShouldBe(ServerStatuses.NameStale);
+        SyncCycle.Устаревший(сервер).ShouldNotBeNull().Kind.ShouldBe(AlertKinds.NameStale);
+    }
+
     [Fact]
     public void Истекающий_и_не_обновлённый_критичен()
     {
@@ -113,7 +127,7 @@ public sealed class OverviewAlertsTests
     public void Недоступен_со_скольких_проверок(int подряд, int порог, bool пишем)
     {
         var сервер = Сервер(installed: null, served: null);
-        сервер.CheckFailures = подряд;
+        сервер.TlsFailures = подряд;
         var проверка = new InspectionResult(null, "соединение отклонено", false, null, null, null, null, null);
 
         SyncCycle.Связь(сервер, проверка, порог).Any(а => а.Kind == AlertKinds.Unreachable).ShouldBe(пишем);
@@ -206,8 +220,9 @@ public sealed class OverviewAlertsTests
         по["server2"].State.ShouldBe("expired", "срок показан честно, но в сводку не идёт");
         по["server1"].Superseded.ShouldBeFalse();
         по["server3"].Superseded.ShouldBeFalse("Kerio подаёт её для имени — клиенты её видят");
-        по["server3"].UpdateFrom.ShouldBe("legacy.example.com");
+        по["server3"].UpdateFrom.ShouldBeNull("кнопка одна на имя — у самой новой версии");
         по["server4"].Superseded.ShouldBeFalse();
+        по["server4"].UpdateFrom.ShouldBe("legacy.example.com");
         по["server5"].Superseded.ShouldBeFalse("истёк, но новее нет");
         хранилище[^1].Id.ShouldBe("server2", "заменённые — в конце");
 

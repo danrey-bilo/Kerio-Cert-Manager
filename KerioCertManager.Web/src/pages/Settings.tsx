@@ -2,10 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { api, Cancelled, errorText } from '../lib/api';
 import { fmtDateTime } from '../lib/format';
 import { useLoad } from '../lib/hooks';
-import { t } from '../lib/i18n';
+import { locale, t } from '../lib/i18n';
 import { loadSettings, saveSettings, text, type Settings } from '../lib/settings';
 import type { KeyManagerStatus, MailStatus } from '../lib/types';
-import { Check, ErrorText, Failed, Field, PageHead, Spinner, Status, Tabs, type DotKind } from '../ui/bits';
+import { Check, ErrorText, Failed, Field, PageHead, Spinner, Status, Switch, Tabs, type DotKind } from '../ui/bits';
 import { Icon } from '../ui/Icon';
 import { FormModal } from '../ui/Modal';
 import { useOverlay } from '../ui/Overlay';
@@ -76,14 +76,14 @@ function SyncForm({ settings, onSaved }: { settings: Settings; onSaved: () => vo
             <span>{t('Автоматическая установка')}</span>
             <small>{t('Продлённый в Key Manager Plus сертификат ставится на серверы сам. Выключите, чтобы поставить всё на паузу.')}</small>
           </div>
-          <label className="switch"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /><span /></label>
+          <Switch label={t('Автоматическая установка')} checked={auto} onChange={setAuto} />
         </div>
         <div className="setting-row">
           <div className="setting-label">
             <span>{t('Пробный режим')}</span>
             <small>{t('Всё проверяется — ключ, цепочка, вход в Kerio, — но сертификат в Kerio не меняется.')}</small>
           </div>
-          <label className="switch"><input type="checkbox" checked={dry} onChange={e => setDry(e.target.checked)} /><span /></label>
+          <Switch label={t('Пробный режим')} checked={dry} onChange={setDry} />
         </div>
         <div className="setting-row">
           <div className="setting-label">
@@ -144,7 +144,7 @@ function MailSettings({ myEmail }: { myEmail: string }) {
       <section className="card status-card">
         <div className="status-line">
           <Status kind={state[0]} strong>{state[1]}</Status>
-          <button onClick={sendTest} disabled={!mail.configured}><Icon name="mail" />{t('Тестовое письмо')}</button>
+          <button type="button" onClick={sendTest} disabled={!mail.configured}><Icon name="mail" />{t('Пробное письмо')}</button>
         </div>
         <div className="facts">
           <span>{t('В очереди')} <b>{mail.pending}</b></span>
@@ -254,7 +254,7 @@ function SmtpForm({ mail, settings, onSaved, onDropPassword }: {
 function TestDialog({ to: initial, onClose }: { to: string; onClose: (done: boolean) => void }) {
   const [to, setTo] = useState(initial);
   return (
-    <FormModal title={t('Тестовое письмо')} submit={t('Отправить')} onSubmit={() => api.post('/api/mail/test', { to: to.trim(), locale: 'ru' })} onClose={onClose}>
+    <FormModal title={t('Пробное письмо')} submit={t('Отправить')} onSubmit={() => api.post('/api/mail/test', { to: to.trim(), locale: locale() })} onClose={onClose}>
       <Field label={t('Кому')}><input type="email" required autoFocus value={to} onChange={e => setTo(e.target.value)} /></Field>
     </FormModal>
   );
@@ -295,8 +295,8 @@ function KeyManagerSettings() {
         <div className="status-line">
           <Status kind={state[0]} strong>{state[1]}</Status>
           <div className="inline">
-            <button onClick={test}>{t('Проверить')}</button>
-            <button onClick={poll} disabled={!km.configured}><Icon name="refresh" />{t('Опросить')}</button>
+            <button type="button" onClick={test}>{t('Проверить')}</button>
+            <button type="button" onClick={poll} disabled={!km.configured}><Icon name="refresh" />{t('Опросить')}</button>
           </div>
         </div>
         <div className="facts">
@@ -322,7 +322,6 @@ function ConnectionForm({ km, settings, onSaved, onDropKey }: {
   const [enabled, setEnabled] = useState(settings['keymanager.enabled']?.value === true);
   const [url, setUrl] = useState(text(settings, 'keymanager.base_url'));
   const [apiKey, setApiKey] = useState('');
-  const [minutes, setMinutes] = useState(text(settings, 'keymanager.poll_minutes'));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -339,7 +338,6 @@ function ConnectionForm({ km, settings, onSaved, onDropKey }: {
       await saveSettings(settings, {
         'keymanager.enabled': enabled,
         'keymanager.base_url': url.trim(),
-        'keymanager.poll_minutes': minutes ? Number(minutes) : '',
       });
       if (apiKey.trim()) await api.put('/api/keymanager/api-key', { api_key: apiKey.trim() });
       setApiKey('');
@@ -362,14 +360,9 @@ function ConnectionForm({ km, settings, onSaved, onDropKey }: {
         <h2>{t('Подключение')}</h2>
         <Check label={t('Включено')} checked={enabled} onChange={setEnabled} />
       </div>
-      <div className="row three">
-        <Field label={t('Адрес')} hint={t('Имя сервера из его сертификата, а не IP')}>
-          <input type="url" placeholder="https://kmp.example.com:6565" value={url} onChange={e => setUrl(e.target.value)} />
-        </Field>
-        <Field label={t('Проход, мин')}>
-          <input type="number" min={1} max={1440} value={minutes} onChange={e => setMinutes(e.target.value)} />
-        </Field>
-      </div>
+      <Field label={t('Адрес')} hint={t('Имя сервера из его сертификата, а не IP')}>
+        <input type="url" placeholder="https://kmp.example.com:6565" value={url} onChange={e => setUrl(e.target.value)} />
+      </Field>
       <Field label={t('Ключ API')} hint="Key Manager Plus → Settings → General Settings → API Key">
         <input type="password" autoComplete="off" placeholder={km.api_key_set ? t('•••••••• задан') : ''}
           value={apiKey} onChange={e => setApiKey(e.target.value)} />

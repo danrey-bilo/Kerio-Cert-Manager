@@ -20,6 +20,15 @@ public sealed class BootstrapArgumentsTests
     }
 
     [Theory]
+    [InlineData("migarte")]
+    [InlineData("--migrate")]
+    public void Опечатка_не_команда(string слово)
+    {
+        Bootstrap.IsCommand([слово]).ShouldBeFalse();
+        Bootstrap.Commands.ShouldContain(Bootstrap.Migrate);
+    }
+
+    [Theory]
     [InlineData(Bootstrap.SetSuperadminPassword, "--password", "test-not-secret")]
     [InlineData(Bootstrap.ResetSuperadminTwoFactor, "--password-file", "test.txt")]
     [InlineData(Bootstrap.SetSuperadminPassword, "--display-name", "ignored")]

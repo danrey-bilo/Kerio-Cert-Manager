@@ -310,7 +310,6 @@ export interface LoginTest {
   version: string | null;
   login_name: string | null;
   role: string | null;
-  full_admin: boolean;
   certificates: KerioCert[];
   suggested_common_names: string[];
 }

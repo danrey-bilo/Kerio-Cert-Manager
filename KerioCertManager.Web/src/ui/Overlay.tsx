@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Cancelled, errorText } from '../lib/api';
 import { t } from '../lib/i18n';
 import { CopyField } from './bits';
@@ -14,6 +14,8 @@ interface Overlay {
   toast: (text: string, kind?: 'err') => void;
   /** Выполнить действие: удача — уведомление, отказ — его текст; отменённый код — тишина. */
   run: (action: () => Promise<unknown>, done?: string) => Promise<boolean>;
+  /** Закрыть все окна как отменённые: сеанс кончился или человек ушёл на другой адрес. */
+  closeAll: () => void;
 }
 
 const Context = createContext<Overlay | null>(null);
@@ -31,15 +33,27 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<Array<{ id: number; node: ReactNode }>>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const next = useRef(0);
+  const closers = useRef(new Map<number, (done: boolean) => void>());
 
   const show = useCallback((render: Render) => new Promise<boolean>(resolve => {
     const id = ++next.current;
     const close = (done: boolean) => {
+      closers.current.delete(id);
       setWindows(list => list.filter(w => w.id !== id));
       resolve(done);
     };
+    closers.current.set(id, close);
     setWindows(list => [...list, { id, node: render(close) }]);
   }), []);
+
+  const closeAll = useCallback(() => {
+    for (const close of [...closers.current.values()]) close(false);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('hashchange', closeAll);
+    return () => window.removeEventListener('hashchange', closeAll);
+  }, [closeAll]);
 
   const toast = useCallback((text: string, kind?: 'err') => {
     const id = ++next.current;
@@ -62,6 +76,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
     show,
     toast,
     run,
+    closeAll,
     confirm: (title, note, submit, danger = false) =>
       show(close => <FormModal title={title} note={note} submit={submit} danger={danger} onClose={close} />),
     showLink: (title, note, url) =>
@@ -70,7 +85,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
           <CopyField value={url} />
         </FormModal>
       )),
-  }), [show, toast, run]);
+  }), [show, toast, run, closeAll]);
 
   return (
     <Context.Provider value={value}>

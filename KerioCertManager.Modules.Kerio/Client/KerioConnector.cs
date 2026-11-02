@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using KerioCertManager.Modules.Kerio.Certificates;
 using KerioCertManager.Modules.Kerio.Domain;
 using KerioCertManager.Modules.Kerio.Secrets;
 
@@ -54,28 +55,11 @@ internal sealed class KerioConnector(ServerPasswords passwords) : IKerioConnecto
         [
             .. alsoTrustedSha256,
             .. new[] { server.InstalledSha256 }
-                .Concat(server.Extras.Where(д => Покрывает(д.CommonName, имя)).Select(д => д.InstalledSha256))
+                .Concat(server.Extras.Where(д => Fingerprints.NameCovers(д.CommonName, имя)).Select(д => д.InstalledSha256))
                 .OfType<string>(),
         ];
 
         return ОткрытьAsync(server, пароль, свои, cancellationToken);
-    }
-
-    /// <summary>Имя сертификата (в том числе «*.домен» на одну метку) покрывает имя узла.</summary>
-    internal static bool Покрывает(string сертификат, string узел)
-    {
-        if (string.Equals(сертификат, узел, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (!сертификат.StartsWith("*.", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var точка = узел.IndexOf('.', StringComparison.Ordinal);
-        return точка > 0 && string.Equals(сертификат[1..], узел[точка..], StringComparison.OrdinalIgnoreCase);
     }
 
     public Task<IKerioSession> OpenAsync(KerioServer server, string password, CancellationToken cancellationToken = default) =>

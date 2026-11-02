@@ -30,21 +30,23 @@ internal sealed class KerioNotifier(
     /// <summary>Сколько хранится журнал оповещений.</summary>
     internal static readonly TimeSpan СрокЖурнала = TimeSpan.FromDays(180);
 
-    /// <summary>Получатели писем о сервере; <c>null</c> — общие (проверка оповещений).</summary>
+    /// <summary>
+    /// Получатели писем о сервере: общие адреса, а не заданы — все учётные записи; адреса сервера идут дополнительно и
+    /// общих не заменяют. <c>null</c> — только общие (проверка оповещений).
+    /// </summary>
     public async Task<IReadOnlyList<string>> RecipientsAsync(KerioServer? server, CancellationToken cancellationToken = default)
     {
-        var общие = Адреса(await settings.GetAsync(KerioSettings.AlertEmails, cancellationToken));
-        var адреса = общие.Concat(server?.NotifyEmails ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        IReadOnlyList<string> общие = Адреса(await settings.GetAsync(KerioSettings.AlertEmails, cancellationToken));
 
-        if (адреса.Count > 0)
+        if (общие.Count == 0)
         {
-            return адреса;
+            общие = await accounts.Query()
+                .Where(учётка => учётка.IsActive)
+                .Select(учётка => учётка.Email)
+                .ToListAsync(cancellationToken);
         }
 
-        return await accounts.Query()
-            .Where(учётка => учётка.IsActive)
-            .Select(учётка => учётка.Email)
-            .ToListAsync(cancellationToken);
+        return [.. общие.Concat(server?.NotifyEmails ?? []).Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>Адреса из строки через запятую, точку с запятой или пробел; негодные отброшены.</summary>
@@ -126,7 +128,8 @@ internal sealed class KerioNotifier(
             message,
             язык => new MailTable(
                 KerioMail.Columns(язык),
-                [.. rows.Select(r => (IReadOnlyList<string>)[KerioMail.Label(r.Key, язык), texts.Translate(r.Value, язык)])]),
+                [.. rows.Select(r => (IReadOnlyList<string>)
+                    [KerioMail.Label(r.Key, язык), KerioMail.IsPhrase(r.Key) ? texts.Translate(r.Value, язык) : r.Value])]),
             commonName,
             @event,
             level,
@@ -274,8 +277,12 @@ internal sealed class KerioNotifier(
         return отправлено ? кому : [];
     }
 
-    /// <summary>Разослать верные сейчас предупреждения, не чаще <c>kerio.alert_repeat_hours</c>; ушедшие условия забыть.</summary>
-    public async Task AlertAsync(KerioServer server, IReadOnlyList<ServerAlert> active, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Разослать верные сейчас предупреждения, не чаще <c>kerio.alert_repeat_hours</c>: одно условие — своим письмом,
+    /// несколько — одним письмом с таблицей. Ушедшие условия забыть; <paramref name="complete"/> — всё ли проверено
+    /// в этом проходе: если нет, молчание условия ничего не значит и его ключ остаётся.
+    /// </summary>
+    public async Task AlertAsync(KerioServer server, IReadOnlyList<ServerAlert> active, bool complete = true, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(server);
         ArgumentNullException.ThrowIfNull(active);
@@ -300,41 +307,86 @@ internal sealed class KerioNotifier(
             включённые.Add((условие, Ключ(условие, ступень)));
         }
 
-        foreach (var вид in server.Alerts.Keys.Where(в => !в.StartsWith(Ключи.Установка, StringComparison.Ordinal)
-            && включённые.All(в2 => в2.Ключ != в)).ToList())
+        var отказы = Ключи.Отказы(server);
+
+        foreach (var вид in server.Alerts.Keys.ToList())
         {
-            server.Alerts.Remove(вид);
+            var ушло = вид.StartsWith(Ключи.Установка, StringComparison.Ordinal)
+                ? !отказы.Contains(вид)
+                : complete && включённые.All(в2 => в2.Ключ != вид);
+
+            if (ушло)
+            {
+                server.Alerts.Remove(вид);
+            }
         }
 
-        foreach (var (условие, ключ) in включённые)
+        var пора = включённые
+            .Where(в => !в.Условие.Quiet
+                && !(server.Alerts.TryGetValue(в.Ключ, out var было) && (повтор == TimeSpan.Zero || сейчас - было < повтор)))
+            .ToList();
+
+        if (пора.Count == 0)
         {
-            if (server.Alerts.TryGetValue(ключ, out var было) && (повтор == TimeSpan.Zero || сейчас - было < повтор))
-            {
-                continue;
-            }
+            return;
+        }
 
-            var строки = new List<Row> { new("server", server.Name), new("address", server.BaseUrl) };
+        var отправлено = пора.Count == 1
+            ? await ОдноAsync(server, пора[0].Условие, cancellationToken)
+            : await СводкаAsync(server, [.. пора.Select(в => в.Условие)], cancellationToken);
 
-            if (server.ServedSubject is not null)
-            {
-                строки.Add(new Row(
-                    "served",
-                    $"{server.ServedSubject} · {server.ServedNotAfter?.ToUniversalTime():dd.MM.yyyy HH:mm} UTC"));
-            }
-
-            var иконка = условие.Level switch
-            {
-                AlertLevel.Critical => "🔴 ",
-                AlertLevel.Warning => "🟠 ",
-                _ => string.Empty,
-            };
-
-            if (await SendAsync(
-                server, KerioMail.Warning, иконка + условие.Title, условие.Message, строки, null, условие.Kind, условие.Level, cancellationToken))
+        if (отправлено)
+        {
+            foreach (var (_, ключ) in пора)
             {
                 server.Alerts[ключ] = сейчас;
             }
         }
+    }
+
+    private static string Значок(AlertLevel level) => level switch
+    {
+        AlertLevel.Critical => "🔴 ",
+        AlertLevel.Warning => "🟠 ",
+        _ => string.Empty,
+    };
+
+    /// <summary>Одно условие — своим письмом.</summary>
+    private Task<bool> ОдноAsync(KerioServer server, ServerAlert условие, CancellationToken cancellationToken)
+    {
+        var строки = new List<Row> { new("server", server.Name), new("address", server.BaseUrl) };
+
+        // Условие о своём имени: «что подаётся по умолчанию» к нему не относится.
+        if (условие.Scope is null && server.ServedSubject is not null)
+        {
+            строки.Add(new Row(
+                "served",
+                $"{server.ServedSubject} · {server.ServedNotAfter?.ToUniversalTime():dd.MM.yyyy HH:mm} UTC"));
+        }
+
+        return SendAsync(
+            server, KerioMail.Warning, Значок(условие.Level) + условие.Title, условие.Message, строки, условие.Scope, условие.Kind, условие.Level, cancellationToken);
+    }
+
+    /// <summary>⚠ Несколько условий сразу — одним письмом: десятки сертификатов одного сервера не должны давать десятки писем.</summary>
+    private Task<bool> СводкаAsync(KerioServer server, IReadOnlyList<ServerAlert> условия, CancellationToken cancellationToken)
+    {
+        var важнейшее = условия.Max(у => у.Level);
+        var порядок = условия.OrderByDescending(у => у.Level).ThenBy(у => у.Scope, StringComparer.OrdinalIgnoreCase).ToList();
+        var сколько = условия.Count.ToString(CultureInfo.InvariantCulture);
+
+        return ОтправитьAsync(
+            server,
+            KerioMail.Warning,
+            $"{Значок(важнейшее)}«{server.Name}»: предупреждений — {сколько}",
+            "На этом сервере сразу несколько условий требуют внимания. Повторы — не чаще срока из настроек оповещений.",
+            язык => new MailTable(
+                KerioMail.DigestColumns(язык),
+                [.. порядок.Select(у => (IReadOnlyList<string>)[Значок(у.Level) + texts.Translate(у.Title, язык), texts.Translate(у.Message, язык)])]),
+            "—",
+            KerioMail.DigestEvent,
+            важнейшее,
+            cancellationToken);
     }
 
     /// <summary>Ключ подавления повтора: вид, ступень напоминания, предмет.</summary>
@@ -348,6 +400,29 @@ internal sealed class KerioNotifier(
     {
         public const string Установка = "deploy:";
 
-        public static string Отказ(string serial) => Установка + "failed:" + serial;
+        /// <summary>С именем: короткие серийные внутреннего УЦ совпадают у разных сертификатов.</summary>
+        public static string Отказ(string commonName, string serial) =>
+            Установка + "failed:" + commonName.ToLowerInvariant() + ":" + serial;
+
+        /// <summary>Ключи выпусков, что сейчас числятся неудачными: остальные больше не нужны.</summary>
+        public static HashSet<string> Отказы(KerioServer server)
+        {
+            var ключи = new HashSet<string>(StringComparer.Ordinal);
+
+            if (server.CommonName is { } имя && server.FailedSerial is { } серийный)
+            {
+                ключи.Add(Отказ(имя, серийный));
+            }
+
+            foreach (var доп in server.Extras)
+            {
+                if (доп.FailedSerial is { } свой)
+                {
+                    ключи.Add(Отказ(доп.CommonName, свой));
+                }
+            }
+
+            return ключи;
+        }
     }
 }

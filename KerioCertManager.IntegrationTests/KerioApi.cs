@@ -109,7 +109,6 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             new { base_url = адрес, username = kerio.User, password = kerio.Password, tls_mode = "pin", tls_pin_sha256 = отпечаток },
             Ct));
         вход["ok"]!.GetValue<bool>().ShouldBeTrue(вход.ToJsonString());
-        вход["full_admin"]!.GetValue<bool>().ShouldBeTrue();
         вход["suggested_common_names"]!.AsArray().Select(и => и!.GetValue<string>()).ShouldContain(Почта);
 
         var неверный = await Json(await клиент.PostAsJsonAsync(
@@ -642,6 +641,10 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         занят.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await Json(занят))["message"]!.GetValue<string>().ShouldContain("проверяется или обновляется");
 
+        // Адреса оповещений проход не трогает: сохранение нескольких серверов разом не должно упираться в его аренду.
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { notify_emails = new[] { "noc@example.com" } }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+
         await АрендаAsync(id, null);
 
         (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { name = "Kerio переименован" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -722,6 +725,239 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
             ответ.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
             (await Json(ответ))["details"]!["field"]!.GetValue<string>().ShouldBe(поле);
         }
+    }
+
+    /// <summary>⚠ Нажатие не переживает отключения и переезда: через месяц оно встало бы ручным решением, в обход правил.</summary>
+    [Fact]
+    public async Task Отключение_и_переезд_гасят_нажатия()
+    {
+        var kerio = Стенд.Kerio[0];
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { auto_deploy = false }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        Стенд.Kmp.Issue(Почта, TimeSpan.FromDays(90));
+        await ЦиклAsync();
+
+        await НажатьAsync();
+        (await Json(await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { enabled = false }, Ct)))["install_queue"]!.AsArray().ShouldBeEmpty();
+        (await НажатийAsync(id)).ShouldBe(0);
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { enabled = true }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await НажатьAsync();
+        var переехал = await Json(await клиент.PatchAsJsonAsync(
+            $"{Серверы}/{id}", new { base_url = $"https://127.0.0.1:{kerio.AdminPort}", password = kerio.Password }, Ct));
+        переехал["install_queue"]!.AsArray().ShouldBeEmpty();
+        (await НажатийAsync(id)).ShouldBe(0);
+
+        async Task НажатьAsync()
+        {
+            host.User.StepUpAt = DateTimeOffset.UtcNow;
+            (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+            (await НажатийAsync(id)).ShouldBe(1);
+        }
+    }
+
+    /// <summary>⚠ Kerio уже отверг пароль: ещё один вход приближает блокировку учётной записи.</summary>
+    [Fact]
+    public async Task Отвергнутый_пароль_установку_не_запускает()
+    {
+        var id = await ПодключитьAsync(Стенд.Kerio[0]);
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Set<KerioCertManager.Modules.Kerio.Domain.KerioServer>()
+                .Where(с => с.Id == id)
+                .ExecuteUpdateAsync(set => set.SetProperty(с => с.AuthRejected, true), Ct);
+        }
+
+        host.User.StepUpAt = DateTimeOffset.UtcNow;
+        var ответ = await host.CreateClient().PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта }, Ct);
+
+        ответ.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await Json(ответ))["details"]!["field"]!.GetValue<string>().ShouldBe("password");
+    }
+
+    /// <summary>Пустое имя снимает сертификат по умолчанию: сервис больше его не меняет и не помнит прежнего.</summary>
+    [Fact]
+    public async Task Пустое_имя_снимает_сертификат_по_умолчанию()
+    {
+        var kerio = Стенд.Kerio[0];
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+
+        var сервер = await Json(await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { common_name = "" }, Ct));
+        сервер["common_name"].ShouldBeNull();
+        сервер["installed"]?["serial"].ShouldBeNull();
+
+        var был = kerio.ServedCertificate.SerialNumber;
+        Стенд.Kmp.Issue(Почта, TimeSpan.FromDays(90));
+        await ЦиклAsync();
+
+        kerio.ServedCertificate.SerialNumber.ShouldBe(был);
+        (await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct))!.ShouldBeEmpty();
+    }
+
+    /// <summary>Все отказали — письма об отказах уже ушли, сводка «0 из 2» ничего не добавила бы.</summary>
+    [Fact]
+    public async Task Все_отказали_сводки_нет()
+    {
+        НастроитьПочту();
+        var kerio = Стенд.Kerio[0];
+        string[] имена = ["a.demo.local", "b.demo.local"];
+
+        foreach (var имя in имена)
+        {
+            Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90));
+        }
+
+        var id = await ПодключитьAsync(kerio);
+        (await host.CreateClient().PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = имена }, Ct)).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+
+        kerio.FailingMethods.Add("ConnectCertificate.importCertificate");
+        await ЦиклAsync();
+        await ЦиклAsync();
+        (await ЦиклAsync()).ShouldBeFalse("оба ждут паузы перед повтором");
+        kerio.FailingMethods.Clear();
+
+        (await ТемыAsync("kerio_deploy_failed")).Count.ShouldBe(2);
+        (await ТемыAsync("kerio_queue_summary")).ShouldBeEmpty();
+    }
+
+    /// <summary>Проход очереди идёт каждые 45 секунд — и только к серверам, где есть что ставить.</summary>
+    [Fact]
+    public async Task Проход_очереди_не_трогает_серверы_без_работы()
+    {
+        var id = await ПодключитьAsync(Стенд.Kerio[0]);
+        var клиент = host.CreateClient();
+        var проверен = (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["last_check_at"]!.GetValue<DateTimeOffset>();
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            (await scope.ServiceProvider.GetRequiredService<SyncCycle>().RunAsync(full: false, Ct)).ShouldBeFalse();
+        }
+
+        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["last_check_at"]!.GetValue<DateTimeOffset>().ShouldBe(проверен);
+
+        await ЦиклAsync();
+        (await Json(await клиент.GetAsync($"{Серверы}/{id}", Ct)))["last_check_at"]!.GetValue<DateTimeOffset>().ShouldBeGreaterThan(проверен);
+    }
+
+    /// <summary>⚠ Выключенный Key Manager Plus — ничего не ставится, даже из старого снимка и по кнопке.</summary>
+    [Fact]
+    public async Task Выключенный_KMP_ничего_не_ставит()
+    {
+        var kerio = Стенд.Kerio[0];
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { auto_deploy = false }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var был = kerio.ServedCertificate.SerialNumber;
+        Стенд.Kmp.Issue(Почта, TimeSpan.FromDays(90));
+        await ЦиклAsync();
+
+        host.Settings.Values["keymanager.enabled"] = false;
+
+        host.User.StepUpAt = DateTimeOffset.UtcNow;
+        (await клиент.PostAsJsonAsync($"{Серверы}/{id}/deploy", new { common_name = Почта }, Ct)).StatusCode.ShouldNotBe(HttpStatusCode.Accepted);
+
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { auto_deploy = true }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ЦиклAsync();
+
+        kerio.ServedCertificate.SerialNumber.ShouldBe(был);
+        (await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct))!.ShouldBeEmpty();
+    }
+
+    /// <summary>⚠ KMP заново показал старую пару имени: сам сервис откат не делает.</summary>
+    [Fact]
+    public async Task Старая_пара_имени_сама_не_ставится()
+    {
+        const string имя = "a.demo.local";
+        var kerio = Стенд.Kerio[0];
+        Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90));
+
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = new[] { имя } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ЦиклAsync();
+
+        var старая = Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90), TimeSpan.FromDays(30));
+        await ЦиклAsync();
+
+        kerio.Store.ShouldNotContain(з => з.Certificate.SerialNumber == старая.Certificate.SerialNumber);
+        var последняя = (await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct))![0]!;
+        последняя["outcome"]!.GetValue<string>().ShouldBe("failed");
+        последняя["error"]!.GetValue<string>().ShouldContain("старше установленного");
+    }
+
+    /// <summary>Несколько условий разом — одно письмо, иначе проход с десятком имён завалит ящик.</summary>
+    [Fact]
+    public async Task Несколько_условий_разом_одно_письмо()
+    {
+        НастроитьПочту();
+        host.Settings.Values["kerio.alert_expiring"] = false;
+        var kerio = Стенд.Kerio[0];
+        string[] имена = ["a.demo.local", "b.demo.local"];
+
+        foreach (var имя in имена)
+        {
+            Стенд.Kmp.Issue(имя, TimeSpan.FromDays(12));
+        }
+
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { extra_common_names = имена }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ЦиклAsync();
+        await ЦиклAsync();
+        await ЦиклAsync();
+
+        host.Settings.Values["kerio.alert_expiring"] = true;
+        await ЦиклAsync();
+
+        var журнал = await клиент.GetFromJsonAsync<JsonArray>($"/api/kerio/notifications?server_id={id}", Ct);
+        var события = журнал!.Select(з => з!["event"]!.GetValue<string>()).ToList();
+        события.ShouldContain("alerts_digest");
+        события.ShouldNotContain("expiring");
+    }
+
+    /// <summary>Память «уже писали»: тихое условие её держит, неполный проход не стирает, полный — стирает.</summary>
+    [Fact]
+    public async Task Память_оповещений_переживает_тихое_условие_и_неполный_проход()
+    {
+        НастроитьПочту();
+        var id = await ПодключитьAsync(Стенд.Kerio[0]);
+
+        await using var scope = host.Services.CreateAsyncScope();
+        var notifier = scope.ServiceProvider.GetRequiredService<KerioCertManager.Modules.Kerio.Notifications.KerioNotifier>();
+        var сервер = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Set<KerioCertManager.Modules.Kerio.Domain.KerioServer>()
+            .SingleAsync(с => с.Id == id, Ct);
+        сервер.Alerts.Clear();
+
+        var условие = new ServerAlert(AlertKinds.Drift, global::KerioCertManager.Modules.Kerio.Sync.AlertLevel.Warning, "Сменили вручную", "Сервер подаёт другой сертификат.");
+
+        await notifier.AlertAsync(сервер, [условие], true, Ct);
+        сервер.Alerts.ShouldHaveSingleItem();
+        var ключ = сервер.Alerts.Keys.Single();
+
+        await notifier.AlertAsync(сервер, [условие with { Quiet = true }], true, Ct);
+        сервер.Alerts.Keys.ShouldBe([ключ]);
+
+        await notifier.AlertAsync(сервер, [], false, Ct);
+        сервер.Alerts.Keys.ShouldBe([ключ]);
+
+        await notifier.AlertAsync(сервер, [], true, Ct);
+        сервер.Alerts.ShouldBeEmpty();
+    }
+
+    /// <summary>Сколько нажатий «Обновить» и «Добавить» ждут прохода.</summary>
+    private async Task<int> НажатийAsync(Guid id)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Set<KerioCertManager.Modules.Kerio.Domain.InstallRequest>()
+            .CountAsync(з => з.ServerId == id, Ct);
     }
 
     /// <summary>Аренда сервера, как у прохода синхронизации; <c>null</c> — снять.</summary>

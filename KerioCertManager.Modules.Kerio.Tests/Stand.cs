@@ -105,6 +105,8 @@ internal sealed class ИсточникСтенда(KmpEmulator kmp, TestPki pki)
     public Task<SourceRefresh> RefreshAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(new SourceRefresh(true, true, kmp.Entries.Count, null));
 
+    public Task<bool> AvailableAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
     public Task<IReadOnlyList<SourceCertificate>> ListAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<SourceCertificate>>([.. kmp.Entries.Select(Выпуск)]);
 

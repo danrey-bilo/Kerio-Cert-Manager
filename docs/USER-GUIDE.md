@@ -269,8 +269,8 @@ Certificates from the last KMP poll: Common Name, serial, expiry, days left, and
 <img src="images/journal-en.png" alt="Installation log" width="900">
 
 Every installation: server, certificate, time, reason (*First installation*, *Renewal in KMP*, *Was expiring on
-server*, *Manual*, *Retry*), outcome (**Installed**, **Error**, **Rolled back to previous**, **Dry run**) and duration. Click
-an installation to see its steps with timestamps, the serial number, the SHA-256 fingerprint and the id in the
+server*, *Manual*, *Retry*), outcome (**Installed**, **Not installed**, **Rolled back to previous**, **Dry run**) and duration. An installation in
+progress updates by itself. Click an installation to see its steps with timestamps, the serial number, the SHA-256 fingerprint and the id in the
 Kerio store. The filters at the top select by outcome.
 
 ## 12. Notifications
@@ -284,7 +284,7 @@ Kerio store. The filters at the top select by outcome.
 | Certificate expiring soon | The certificate the server serves expires within *First e-mail at* days (21 by default), then reminders (7, 3, 1) |
 | Certificate expired | The server serves an expired certificate |
 | Not updated automatically | KMP has a renewal, but the server still has the previous one after *N* hours |
-| Installation failed or rolled back | With the reason and the step where it stopped |
+| Installation failed or rolled back | With the reason and the step where it stopped. Also when a fresh release is installed but Kerio still serves the old one for this name |
 | Certificate installed | A single installation is reported at once. A queue of several gets one summary e-mail when it is done: how many were installed, how many failed and the result for each name (failures are still e-mailed at once) |
 | Awaiting manual installation | A renewal is available, but automatic installation is off |
 | Server unreachable | After *N* consecutive failed checks |
@@ -293,10 +293,11 @@ Kerio store. The filters at the top select by outcome.
 | Not in Key Manager Plus | The linked certificate disappeared from the KMP poll |
 
 **Repeat until fixed** — a warning that is still true is repeated no more often than this (0 — once per
-occurrence).
+occurrence). Several conditions on a server at once arrive as one e-mail with a table.
 
 **Who to notify** — recipients of all notifications (empty — all active panel users), **E-mail language**
-(subject, template and event details), and additional recipients per server.
+(subject, template and event details), and additional recipients per server: they get mail about their server along
+with the common recipients.
 
 **Test e-mail** checks the whole path; **Sent notifications** at the bottom keeps the history for 180 days.
 Changing notification settings requires a fresh code.

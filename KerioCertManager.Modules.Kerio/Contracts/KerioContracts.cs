@@ -63,9 +63,6 @@ public static class KerioErrorCodes
     /// <summary>Kerio недоступен или отказал: <c>details.reason</c> (<c>409</c>, не <c>5xx</c>: Cloudflare).</summary>
     public const string Unavailable = "KERIO_UNAVAILABLE";
 
-    /// <summary>Сертификат Kerio не совпал с закреплённым или не прошёл проверку (<c>409</c>).</summary>
-    public const string TlsUntrusted = "KERIO_TLS_UNTRUSTED";
-
     /// <summary>Сервер сейчас занят установкой (<c>409</c>).</summary>
     public const string Busy = "KERIO_SERVER_BUSY";
 }

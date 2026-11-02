@@ -76,9 +76,9 @@ export function Login({ message, onEntered, onSecondFactor }: {
 function Forgot({ email: initial, onBack }: { email: string; onBack: () => void }) {
   const [email, setEmail] = useState(initial);
   const [sent, setSent] = useState(false);
-  const { busy, submit } = useSubmit(async () => {
-    await publicPost('/api/password-reset/request', { email: email.trim() });
-    setSent(true);
+  const { error, setError, busy, submit } = useSubmit(async () => {
+    const r = await publicPost('/api/password-reset/request', { email: email.trim() });
+    if (r.ok) setSent(true); else setError(r.error.message);
   });
 
   return (
@@ -88,6 +88,7 @@ function Forgot({ email: initial, onBack }: { email: string; onBack: () => void 
           <input type="email" required autoFocus value={email} onChange={e => setEmail(e.target.value)} />
         </Field>
         {sent && <p className="muted">{t('Если адрес есть в системе, ссылка придёт на почту.')}</p>}
+        <ErrorText text={error} />
         <button type="submit" className="primary" disabled={busy}>{t('Отправить ссылку')}</button>
         <button type="button" className="link" onClick={onBack}>{t('Назад')}</button>
       </form>

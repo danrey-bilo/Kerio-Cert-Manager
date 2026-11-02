@@ -50,9 +50,16 @@ internal static class ExtraPlanner
             return new ExtraPlan(PlanAction.None, null, null, null, предупреждения, false);
         }
 
+        var вХранилище = версии.Any(з => Fingerprints.SameSerial(з.Serial, source.SerialNumber));
+
+        // ⚠ Хранилище не прочитано: о сроках судим по последнему снимку, чтобы имена не истекали молча; кнопка отказывает с причиной.
         if (!storeKnown)
         {
-            return new ExtraPlan(PlanAction.None, null, source, null, предупреждения, false);
+            Срок(server, имя, версии.FirstOrDefault(), warningDays, now, предупреждения, вKmpЕстьНовый: !вХранилище);
+
+            return manual
+                ? new ExtraPlan(PlanAction.Deploy, DeployTriggers.Manual, source, null, предупреждения, !вХранилище)
+                : new ExtraPlan(PlanAction.None, null, source, null, предупреждения, !вХранилище);
         }
 
         var лежит = версии.FirstOrDefault(з => Fingerprints.SameSerial(з.Serial, source.SerialNumber));
@@ -74,6 +81,13 @@ internal static class ExtraPlanner
             return new ExtraPlan(PlanAction.None, null, source, null, предупреждения, false);
         }
 
+        // ⚠ Текст версии не прочитан: лежит ли там текущий выпуск, неизвестно — сам сервис не ставит вслепую.
+        if (!manual && версии.Any(з => з.Serial is null))
+        {
+            Срок(server, имя, версии.FirstOrDefault(), warningDays, now, предупреждения, вKmpЕстьНовый: false);
+            return new ExtraPlan(PlanAction.None, null, source, null, предупреждения, false);
+        }
+
         Срок(server, имя, версии.FirstOrDefault(), warningDays, now, предупреждения, вKmpЕстьНовый: true);
 
         if (manual)
@@ -81,14 +95,11 @@ internal static class ExtraPlanner
             return new ExtraPlan(PlanAction.Deploy, DeployTriggers.Manual, source, null, предупреждения, true);
         }
 
-        var первая = extra.InstalledSerial is null && версии.Count == 0;
-
-        // ⚠ Выключатель сервера — о продлениях: только что добавленный сертификат ставится и при нём; общая пауза держит всё.
-        if (!globalAutoDeploy || (!server.AutoDeploy && !первая))
+        if (!InstallPolicy.Automatic(globalAutoDeploy, server.AutoDeploy, extra.InstalledSerial))
         {
             предупреждения.Add(new ServerAlert(
                 AlertKinds.RenewalPending,
-                AlertLevel.Warning,
+                версии.FirstOrDefault()?.NotAfter is { } до && до - now <= TimeSpan.FromDays(warningDays) ? AlertLevel.Critical : AlertLevel.Warning,
                 $"Для «{server.Name}» есть новый сертификат {имя} — ждёт установки",
                 $"В Key Manager Plus выпуск {имя} (серийный {Fingerprints.Serial(source.SerialNumber)}"
                 + (source.ExpiresOn is { } срок ? $", до {срок:dd.MM.yyyy}" : string.Empty)
@@ -106,7 +117,7 @@ internal static class ExtraPlanner
 
         var триггер = extra.Failures > 0 && Fingerprints.SameSerial(extra.FailedSerial, source.SerialNumber)
             ? DeployTriggers.Retry
-            : первая
+            : extra.InstalledSerial is null
                 ? DeployTriggers.Initial
                 : DeployTriggers.Renewal;
 
@@ -191,7 +202,7 @@ internal static class ExtraPlanner
         }
         else if (осталось <= TimeSpan.FromDays(warningDays))
         {
-            var дней = (int)Math.Ceiling(осталось.TotalDays);
+            var дней = Math.Max(DeployPlanner.ДнейДо(до, now), 1);
 
             предупреждения.Add(new ServerAlert(
                 AlertKinds.Expiring,

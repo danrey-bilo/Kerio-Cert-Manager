@@ -26,17 +26,6 @@ internal static class ServerStatuses
 /// <summary>Строка сервера → ответ панели со статусом.</summary>
 internal static class ServerView
 {
-    /// <summary>Текущие выпуски KMP по Common Name (без учёта регистра).</summary>
-    public static IReadOnlyDictionary<string, SourceCertificate> Current(IEnumerable<SourceCertificate> list) =>
-        list.GroupBy(с => с.CommonName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                г => г.Key,
-                г => г.OrderByDescending(с => с.FirstSeenAt)
-                    .ThenByDescending(с => с.ExpiresOn ?? DateOnly.MinValue)
-                    .ThenByDescending(с => с.SerialNumber, StringComparer.Ordinal)
-                    .First(),
-                StringComparer.OrdinalIgnoreCase);
-
     public static ServerOut Of(
         KerioServer с,
         IReadOnlyDictionary<string, SourceCertificate> kmp,
@@ -59,7 +48,7 @@ internal static class ServerView
         var выпуск = с.CommonName is { } имя && kmp.TryGetValue(имя, out var найден) ? найден : null;
         var (статус, текст) = Status(с, выпуск, warningDays, now, dryRun, paused, ВОчереди(с.CommonName));
 
-        int? дней = с.ServedNotAfter is { } до ? (int)Math.Floor((до - now).TotalDays) : null;
+        int? дней = с.ServedNotAfter is { } до ? DeployPlanner.ДнейДо(до, now) : null;
 
         return new ServerOut(
             с.Id,
@@ -150,11 +139,11 @@ internal static class ServerView
             : лежит is not null ? (ServerStatuses.Ok, "Текущий выпуск лежит в хранилище Kerio.")
             : дольше is not null
                 ? (ServerStatuses.Ok, $"Действует сертификат не из KMP до {дольше.NotAfter?.ToUniversalTime():dd.MM.yyyy} — дольше выпуска KMP; замена не нужна.")
+            : queued ? (ServerStatuses.UpdatePending, "Новый выпуск — в очереди на установку.")
             : д.LastError is { } отказ && Fingerprints.SameSerial(д.FailedSerial, выпуск.SerialNumber) ? (ServerStatuses.DeployFailed, отказ)
             : (ServerStatuses.UpdatePending, dryRun
                 ? "Новый выпуск — пробный режим: проверен, но в Kerio не ставится."
-                // ⚠ Как в ExtraPlanner: первая установка не ждёт выключателя сервера, общая пауза держит всё.
-                : queued || (!paused && (с.AutoDeploy || (д.InstalledSerial is null && !с.Store.Any(з => ExtraPlanner.Того(з, д.CommonName)))))
+                : InstallPolicy.Automatic(!paused, с.AutoDeploy, д.InstalledSerial)
                     ? "Новый выпуск — в очереди на установку." : "Новый выпуск — ждёт ручной установки.");
 
         return new ExtraOut(
@@ -175,15 +164,49 @@ internal static class ServerView
     /// <summary>Хранилище Kerio для обзора: что подаётся, откуда каждый сертификат, сколько ему осталось.</summary>
     internal static IReadOnlyList<StoreCertOut> Хранилище(
         KerioServer с, IReadOnlyList<SourceCertificate> releases, int warningDays, DateTimeOffset now) =>
-        Хранилище(с, BySerial(releases), Current(releases), warningDays, now);
+        Хранилище(с, BySerial(releases), SourceReleases.Current(releases), warningDays, now);
 
-    /// <summary>Выпуски KMP по серийному номеру в одном виде — один раз на запрос, а не на каждый сервер.</summary>
+    /// <summary>
+    /// Выпуски KMP по имени и серийному номеру — один раз на запрос, а не на каждый сервер. ⚠ С именем: короткие
+    /// серийные внутреннего УЦ совпадают у разных сертификатов.
+    /// </summary>
     public static IReadOnlyDictionary<string, SourceCertificate> BySerial(IReadOnlyList<SourceCertificate> releases) =>
         releases
-            .Select(в => (Номер: Fingerprints.Serial(в.SerialNumber), Выпуск: в))
-            .Where(п => п.Номер.Length > 0)
-            .GroupBy(п => п.Номер, StringComparer.Ordinal)
+            .Select(в => (Ключ: КлючВыпуска(в.CommonName, в.SerialNumber), Выпуск: в))
+            .GroupBy(п => п.Ключ, StringComparer.Ordinal)
             .ToDictionary(г => г.Key, г => г.First().Выпуск, StringComparer.Ordinal);
+
+    private static string КлючВыпуска(string commonName, string serial) =>
+        commonName.ToLowerInvariant() + "|" + Fingerprints.Serial(serial);
+
+    /// <summary>Поданный сертификат по умолчанию — чужой и действует дольше выпуска KMP; доверие и имя — из хранилища.</summary>
+    private static bool ПоУмолчаниюДольше(KerioServer с, SourceCertificate выпуск)
+    {
+        var подан = с.Store.FirstOrDefault(з => string.Equals(з.Sha256, с.ServedSha256, StringComparison.Ordinal));
+
+        return подан is not null && с.ServedNotAfter is { } до && DeployPlanner.ЧужойДольше(
+            с,
+            с.ServedSerial,
+            до,
+            !подан.SelfSigned && !подан.Untrusted && подан.DnsNames.Append(подан.Subject).Any(и => Fingerprints.NameCovers(и, выпуск.CommonName)),
+            выпуск);
+    }
+
+    /// <summary>
+    /// Стоит ли кнопка у имени: текущего выпуска нет там, где он должен быть, и замена не хуже того, что есть. Сертификат
+    /// по умолчанию должен подаваться, сертификат имени — лежать в хранилище.
+    /// </summary>
+    private static bool НужнаКнопка(KerioServer с, string имя, SourceCertificate свежий)
+    {
+        if (string.Equals(имя, с.CommonName, StringComparison.OrdinalIgnoreCase))
+        {
+            return !Fingerprints.SameSerial(с.ServedSerial, свежий.SerialNumber) && !ПоУмолчаниюДольше(с, свежий);
+        }
+
+        return !с.Store.Any(з => ExtraPlanner.Того(з, имя) && Fingerprints.SameSerial(з.Serial, свежий.SerialNumber))
+            && с.Extras.FirstOrDefault(д => string.Equals(д.CommonName, имя, StringComparison.OrdinalIgnoreCase)) is { } доп
+            && ExtraPlanner.ЧужойДольше(с, доп, свежий) is null;
+    }
 
     internal static IReadOnlyList<StoreCertOut> Хранилище(
         KerioServer с,
@@ -193,7 +216,6 @@ internal static class ServerView
         DateTimeOffset now)
     {
         var ведомые = с.ManagedNames().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var лежат = с.Store.Where(з => з.Serial is not null).Select(з => Fingerprints.Serial(з.Serial!)).ToHashSet(StringComparer.Ordinal);
         var подаются = с.ServedByName.Values.Append(с.ServedSha256).OfType<string>().ToHashSet(StringComparer.Ordinal);
 
         // Самый поздний срок каждого имени: версия раньше него, которую Kerio не подаёт, заменена и в сводку не идёт.
@@ -205,7 +227,7 @@ internal static class ServerView
         return [.. с.Store
             .Select(з =>
             {
-                var выпуск = з.Serial is { } номер && поНомеру.TryGetValue(Fingerprints.Serial(номер), out var найден) ? найден : null;
+                var выпуск = з.Serial is { } номер && поНомеру.TryGetValue(КлючВыпуска(з.Subject, номер), out var найден) ? найден : null;
                 var свой = (з.Sha256 is not null && string.Equals(з.Sha256, с.InstalledSha256, StringComparison.Ordinal))
                     || (выпуск is not null && ведомые.Contains(выпуск.CommonName))
                     || (с.CommonName is { } имя && ExtraPlanner.Того(з, имя) && с.Installed(з.Serial))
@@ -217,7 +239,7 @@ internal static class ServerView
                     : з.Type.Contains("Request", StringComparison.OrdinalIgnoreCase) ? "request"
                     : "foreign";
 
-                int? дней = з.NotAfter is { } до ? (int)Math.Floor((до - now).TotalDays) : null;
+                int? дней = з.NotAfter is { } до ? DeployPlanner.ДнейДо(до, now) : null;
 
                 var срок = з.NotAfter is not { } конец ? "unknown"
                     : конец <= now ? "expired"
@@ -229,13 +251,13 @@ internal static class ServerView
                     && новейший.TryGetValue(з.Subject, out var свежее)
                     && свежее > мой;
 
-                // ⚠ «Обновить» — только у выбранного для сервера имени: в KMP есть выпуск новее, и его ещё нет в хранилище.
+                // ⚠ «Обновить» — только у выбранного для сервера имени и одна на имя: у самой новой его версии.
                 var обновить = !заменён
                     && откуда is not ("builtin" or "request")
                     && ведомые.Contains(з.Subject)
+                    && (з.NotAfter is not { } срокВерсии || !новейший.TryGetValue(з.Subject, out var поздний) || срокВерсии >= поздний)
                     && текущие.TryGetValue(з.Subject, out var свежий)
-                    && !лежат.Contains(Fingerprints.Serial(свежий.SerialNumber))
-                    && (свежий.ExpiresOn is not { } доKmp || з.NotAfter is not { } доЗдесь || доKmp > DateOnly.FromDateTime(доЗдесь.UtcDateTime))
+                    && НужнаКнопка(с, з.Subject, свежий)
                     ? свежий.CommonName
                     : null;
 
@@ -290,20 +312,39 @@ internal static class ServerView
             return (ServerStatuses.Error, ошибка);
         }
 
-        var отстаёт = выпуск is not null && !Fingerprints.SameSerial(с.ServedSerial, выпуск.SerialNumber);
-
-        if (с.LastDeployError is { } отказ && отстаёт)
+        if (выпуск is not null && !Fingerprints.SameSerial(с.ServedSerial, выпуск.SerialNumber))
         {
-            return (ServerStatuses.DeployFailed, отказ);
-        }
+            if (queued)
+            {
+                return (ServerStatuses.UpdatePending, "В Key Manager Plus новый выпуск — в очереди на установку.");
+            }
 
-        if (отстаёт)
-        {
+            if (с.LastDeployError is { } отказ && Fingerprints.SameSerial(с.FailedSerial, выпуск.SerialNumber))
+            {
+                return (ServerStatuses.DeployFailed, отказ);
+            }
+
+            if (ПоУмолчаниюДольше(с, выпуск))
+            {
+                return (ServerStatuses.Ok, $"Действует сертификат не из KMP до {с.ServedNotAfter?.ToUniversalTime():dd.MM.yyyy} — дольше выпуска KMP; замена не нужна.");
+            }
+
+            // Как в DeployPlanner: сервис этот выпуск уже ставил, а сервер подаёт другой — не спорит, ждёт решения человека.
+            if (Fingerprints.SameSerial(с.InstalledSerial, выпуск.SerialNumber))
+            {
+                return (ServerStatuses.UpdatePending, "Сертификат на сервере сменили мимо сервиса. Если это не намеренно, нажмите «Обновить».");
+            }
+
             return (ServerStatuses.UpdatePending, dryRun
                 ? "В Key Manager Plus новый выпуск — пробный режим: проверен, но в Kerio не ставится."
-                : queued || (!paused && (с.AutoDeploy || с.InstalledSerial is null))
+                : InstallPolicy.Automatic(!paused, с.AutoDeploy, с.InstalledSerial)
                     ? "В Key Manager Plus новый выпуск — в очереди на установку."
                     : "В Key Manager Plus новый выпуск — ждёт ручной установки.");
+        }
+
+        if (SyncCycle.Устаревший(с) is not null)
+        {
+            return (ServerStatuses.NameStale, "Свежий выпуск подаётся, но для этого имени Kerio подаёт прежний — перезапустите службу Kerio Connect.");
         }
 
         if (с.ServedNotAfter is { } срок && срок - now <= TimeSpan.FromDays(warningDays))

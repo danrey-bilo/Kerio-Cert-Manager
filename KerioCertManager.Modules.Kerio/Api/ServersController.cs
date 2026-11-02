@@ -139,52 +139,29 @@ internal sealed class ServersController(
             подан.Pem);
     }
 
-    /// <summary>Войти в Kerio и показать хранилище сертификатов — до сохранения или с сохранённым паролем.</summary>
+    /// <summary>Войти в Kerio и показать хранилище сертификатов — до сохранения сервера.</summary>
     [HttpPost("servers/test")]
     public async Task<TestOut> Test([FromBody] TestIn body, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        KerioServer сервер;
-        string? пароль = null;
-
-        if (body.ServerId is { } id)
+        var сервер = new KerioServer
         {
-            сервер = await НайтиAsync(id, tracked: false, cancellationToken);
+            Id = Guid.Empty,
+            Name = "test",
+            BaseUrl = (await АдресAsync(body.BaseUrl, cancellationToken)).GetLeftPart(UriPartial.Authority),
+            Username = Логин(body.Username),
+            TlsMode = Режим(body.TlsMode),
+            TlsPinSha256 = Пин(body.TlsMode, body.TlsPinSha256),
+            TlsServerName = ИмяTls(body.TlsServerName),
+        };
 
-            // ⚠ Kerio уже отверг сохранённый пароль: ещё один вход тем же паролем приближает блокировку учётной записи.
-            if (сервер.AuthRejected)
-            {
-                return new TestOut(
-                    false,
-                    "Kerio прежде отверг сохранённый пароль — сервис не входит с ним, чтобы не заблокировать учётную запись. "
-                    + "Задайте пароль заново или нажмите «Проверить» на странице сервера.",
-                    null, null, null, false, [], []);
-            }
-        }
-        else
-        {
-            сервер = new KerioServer
-            {
-                Id = Guid.Empty,
-                Name = "test",
-                BaseUrl = (await АдресAsync(body.BaseUrl, cancellationToken)).GetLeftPart(UriPartial.Authority),
-                Username = Логин(body.Username),
-                TlsMode = Режим(body.TlsMode),
-                TlsPinSha256 = Пин(body.TlsMode, body.TlsPinSha256),
-                TlsServerName = ИмяTls(body.TlsServerName),
-            };
-
-            пароль = Пароль(body.Password);
-        }
-
+        var пароль = Пароль(body.Password);
         var выпуски = await source.ListAsync(cancellationToken);
 
         try
         {
-            await using var сессия = пароль is null
-                ? await connector.OpenAsync(сервер, cancellationToken)
-                : await connector.OpenAsync(сервер, пароль, cancellationToken);
+            await using var сессия = await connector.OpenAsync(сервер, пароль, cancellationToken);
 
             var кто = await сессия.WhoAmIAsync(cancellationToken);
             var версия = await сессия.VersionAsync(cancellationToken);
@@ -196,9 +173,7 @@ internal sealed class ServersController(
             var подходящие = активный is null
                 ? []
                 : имена.Where(cn => string.Equals(cn, активный, StringComparison.OrdinalIgnoreCase))
-                    .Concat(имена.Where(cn => cn.StartsWith("*.", StringComparison.Ordinal)
-                        && активный.EndsWith(cn[1..], StringComparison.OrdinalIgnoreCase)
-                        && !активный[..^(cn.Length - 1)].Contains('.', StringComparison.Ordinal)))
+                    .Concat(имена.Where(cn => !string.Equals(cn, активный, StringComparison.OrdinalIgnoreCase) && Fingerprints.NameCovers(cn, активный)))
                     .ToList();
 
             return new TestOut(
@@ -209,13 +184,17 @@ internal sealed class ServersController(
                 версия,
                 кто.LoginName,
                 кто.Role,
-                кто.Role == ServerInspection.FullAdmin,
                 [.. хранилище.Select(с => new KerioCertificateOut(с.Id, с.Type, с.Subject, с.Issuer, с.ValidTo, с.IsSelfSigned))],
                 подходящие);
         }
         catch (KerioException ошибка)
         {
-            return new TestOut(false, ошибка.Message, null, null, null, false, [], []);
+            return new TestOut(false, ошибка.Message, null, null, null, [], []);
+        }
+        catch (Exception ошибка) when (ошибка is InvalidOperationException or FormatException or System.Text.Json.JsonException)
+        {
+            // ⚠ По адресу отвечает что-то другое: ответ не разобран — это итог проверки, а не сбой сервиса.
+            return new TestOut(false, $"Адрес ответил не как Kerio Connect: {SafeError.Describe(ошибка)}.", null, null, null, [], []);
         }
     }
 
@@ -269,8 +248,12 @@ internal sealed class ServersController(
             },
             cancellationToken);
 
-        await cycle.CheckAsync(сервер.Id, cancellationToken);
-        wakeup.Signal();
+        // ⚠ Отключённый сервер не проверяется, в том числе сразу после подключения.
+        if (сервер.Enabled)
+        {
+            await cycle.CheckAsync(сервер.Id, forceApi: false, cancellationToken);
+            wakeup.Signal();
+        }
 
         return CreatedAtAction(nameof(Get), new { id = сервер.Id }, await ОдинAsync(await НайтиAsync(сервер.Id, false, cancellationToken), cancellationToken));
     }
@@ -287,12 +270,12 @@ internal sealed class ServersController(
             await АдресAsync(body.BaseUrl, cancellationToken);
         }
 
-        var сертификатыМеняются = body.CommonName is not null || body.ClearCommonName == true || body.ExtraCommonNames is not null;
+        var сертификатыМеняются = body.CommonName is not null || body.ExtraCommonNames is not null;
         var выпуски = сертификатыМеняются ? await source.ListAsync(cancellationToken) : [];
 
         var сервер = await ИзменитьAsync(
             id,
-            сервер =>
+            async (сервер, token) =>
             {
                 var было = Снимок(сервер);
 
@@ -312,19 +295,11 @@ internal sealed class ServersController(
                     throw Неверно("password", "Адрес или логин сменились — введите пароль заново: прежний привязан к прежнему адресу и логину.");
                 }
 
-                // ⚠ Поставленный сервисом сертификат доверен при входе сверх режима — но только по тому адресу, куда его ставили.
-                if (!string.Equals(ServerPasswords.NormalizeUrl(адрес), ServerPasswords.NormalizeUrl(сервер.BaseUrl), StringComparison.Ordinal))
+                var переехал = !string.Equals(ServerPasswords.NormalizeUrl(адрес), ServerPasswords.NormalizeUrl(сервер.BaseUrl), StringComparison.Ordinal);
+
+                if (переехал)
                 {
-                    сервер.InstalledSerial = null;
-                    сервер.InstalledSha256 = null;
-                    сервер.InstalledNotBefore = null;
-                    сервер.InstalledNotAfter = null;
-                    сервер.InstalledKerioId = null;
-                    сервер.PreviousSerials = [];
-                    сервер.FailedSerial = null;
-                    сервер.DeployFailures = 0;
-                    сервер.NextAttemptAt = null;
-                    сервер.DryRunSerial = null;
+                    сервер.ForgetAddress();
                 }
 
                 сервер.BaseUrl = адрес;
@@ -338,7 +313,7 @@ internal sealed class ServersController(
 
                 var (поУмолчанию, свои) = сертификатыМеняются
                     ? CertificateNames.Check(
-                        body.ClearCommonName == true ? null : body.CommonName ?? сервер.CommonName,
+                        body.CommonName ?? сервер.CommonName,
                         body.ExtraCommonNames ?? [.. сервер.Extras.Select(д => д.CommonName)],
                         выпуски,
                         сервер.ManagedNames())
@@ -348,40 +323,32 @@ internal sealed class ServersController(
                 {
                     сервер.Extras =
                     [
-                        .. свои
-                            .Where(имя => !string.Equals(имя, поУмолчанию, StringComparison.OrdinalIgnoreCase))
-                            .Select(имя => сервер.Extras.FirstOrDefault(д => string.Equals(д.CommonName, имя, StringComparison.OrdinalIgnoreCase))
-                                ?? new ExtraCertificate { CommonName = имя, AddedAt = clock.GetUtcNow() }),
+                        .. свои.Select(имя => сервер.Extras.FirstOrDefault(д => string.Equals(д.CommonName, имя, StringComparison.OrdinalIgnoreCase))
+                            ?? new ExtraCertificate { CommonName = имя, AddedAt = clock.GetUtcNow() }),
                     ];
                 }
 
-                if (body.ClearCommonName == true)
+                // Пустое имя снимает сертификат по умолчанию: сервис его больше не меняет.
+                if (body.CommonName is not null && !string.Equals(поУмолчанию, сервер.CommonName, StringComparison.OrdinalIgnoreCase))
                 {
-                    сервер.CommonName = null;
+                    сервер.ForgetDefaultInstall();
+                    сервер.CommonName = поУмолчанию;
+                    сервер.DefaultSelectedAt = поУмолчанию is null ? null : clock.GetUtcNow();
                 }
-                else if (body.CommonName is not null)
-                {
-                    var имя = поУмолчанию ?? ИмяСертификата(body.CommonName);
 
-                    if (!string.Equals(имя, сервер.CommonName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        сервер.InstalledSerial = null;
-                        сервер.InstalledSha256 = null;
-                        сервер.InstalledNotBefore = null;
-                        сервер.InstalledNotAfter = null;
-                        сервер.FailedSerial = null;
-                        сервер.DeployFailures = 0;
-                        сервер.NextAttemptAt = null;
-                        сервер.LastDeployError = null;
-                        сервер.DryRunSerial = null;
-                    }
-
-                    сервер.CommonName = имя;
-                }
+                var отключён = сервер.Enabled && body.Enabled == false;
 
                 сервер.AutoDeploy = body.AutoDeploy ?? сервер.AutoDeploy;
                 сервер.CleanupOld = body.CleanupOld ?? сервер.CleanupOld;
                 сервер.Enabled = body.Enabled ?? сервер.Enabled;
+
+                // ⚠ Нажатие не переживает переезда и отключения: через месяц оно встало бы как ручное решение, в обход правил.
+                if (переехал || отключён)
+                {
+                    сервер.InstallQueue = [];
+                    сервер.QueueReportSince = null;
+                    await db.Set<InstallRequest>().Where(з => з.ServerId == сервер.Id).ExecuteDeleteAsync(token);
+                }
 
                 if (body.VerifyPorts is not null)
                 {
@@ -399,40 +366,16 @@ internal sealed class ServersController(
                     ResourceId: сервер.Id,
                     Changes: Разница(было, Снимок(сервер), !string.IsNullOrEmpty(body.Password)));
             },
-            cancellationToken);
+            cancellationToken,
+            ждатьПроход: !body.OnlyNotifyEmails);
 
-        wakeup.Signal();
+        // ⚠ Адреса на проверку не влияют; иначе сохранение нескольких серверов разом разбудило бы проход и упёрлось в его аренду.
+        if (!body.OnlyNotifyEmails)
+        {
+            wakeup.Signal();
+        }
 
         return await ОдинAsync(сервер, cancellationToken);
-    }
-
-    /// <summary>Задать пароль учётной записи Kerio.</summary>
-    [HttpPut("servers/{id:guid}/password")]
-    [RequireRecentSecondFactor]
-    public async Task<IActionResult> SetPassword(Guid id, [FromBody] PasswordIn body, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(body);
-
-        var пароль = Пароль(body.Password);
-
-        await ИзменитьAsync(
-            id,
-            сервер =>
-            {
-                passwords.Put(сервер, пароль);
-                сервер.AuthRejected = false;
-
-                return new AuditEntry(
-                    KerioActions.PasswordSet,
-                    ResourceType: KerioActions.ServerResource,
-                    ResourceId: сервер.Id,
-                    Changes: new Dictionary<string, object?>(StringComparer.Ordinal) { ["server"] = сервер.Name });
-            },
-            cancellationToken);
-
-        await cycle.CheckAsync(id, cancellationToken);
-
-        return NoContent();
     }
 
     /// <summary>Изменить доверие к сертификату Kerio: центр сертификации или закреплённый отпечаток.</summary>
@@ -446,9 +389,9 @@ internal sealed class ServersController(
         var пин = Пин(body.TlsMode, body.TlsPinSha256);
         var имя = ИмяTls(body.TlsServerName);
 
-        await ИзменитьAsync(
+        var обновлён = await ИзменитьAsync(
             id,
-            сервер =>
+            (сервер, _) =>
             {
                 var было = (сервер.TlsMode, сервер.TlsPinSha256, сервер.TlsServerName);
 
@@ -456,7 +399,7 @@ internal sealed class ServersController(
                 сервер.TlsPinSha256 = пин;
                 сервер.TlsServerName = имя;
 
-                return new AuditEntry(
+                return Task.FromResult(new AuditEntry(
                     KerioActions.TrustUpdated,
                     ResourceType: KerioActions.ServerResource,
                     ResourceId: сервер.Id,
@@ -466,11 +409,15 @@ internal sealed class ServersController(
                         ["tls_mode"] = new[] { было.TlsMode, сервер.TlsMode },
                         ["tls_pin_sha256"] = new[] { было.TlsPinSha256, сервер.TlsPinSha256 },
                         ["tls_server_name"] = new[] { было.TlsServerName, сервер.TlsServerName },
-                    });
+                    }));
             },
             cancellationToken);
 
-        await cycle.CheckAsync(id, cancellationToken);
+        if (обновлён.Enabled)
+        {
+            await cycle.CheckAsync(id, forceApi: false, cancellationToken);
+            wakeup.Signal();
+        }
 
         return await ОдинAsync(await НайтиAsync(id, false, cancellationToken), cancellationToken);
     }
@@ -518,7 +465,7 @@ internal sealed class ServersController(
     [HttpPost("servers/{id:guid}/check")]
     public async Task<ServerOut> Check(Guid id, CancellationToken cancellationToken)
     {
-        var итог = await cycle.CheckAsync(id, cancellationToken);
+        var итог = await cycle.CheckAsync(id, forceApi: true, cancellationToken);
 
         if (итог == ProcessOutcome.Missing)
         {
@@ -548,15 +495,29 @@ internal sealed class ServersController(
             ? null
             : найден.ManagedNames().FirstOrDefault(н => string.Equals(н, body.CommonName.Trim(), StringComparison.OrdinalIgnoreCase))
               ?? throw Неверно("common_name", $"Сертификат {body.CommonName.Trim()} не выбран для этого сервера.");
-        var имя = выбран ?? найден.CommonName;
 
-        if (!string.IsNullOrWhiteSpace(имя) && await source.CurrentAsync(имя, cancellationToken) is null)
+        // ⚠ Выключенный KMP проход не трогает: нажатие молча пропало бы, а человек ждал бы установку.
+        if (!await source.AvailableAsync(cancellationToken))
         {
             throw new AppException(
-                KerioErrorCodes.Unavailable,
-                $"В последнем опросе Key Manager Plus нет сертификата {имя}.",
-                HttpStatusCode.Conflict,
-                new Dictionary<string, object?>(StringComparer.Ordinal) { ["reason"] = "Проверьте связь с Key Manager Plus." });
+                KeyManagerErrorCodes.NotConfigured,
+                "Key Manager Plus выключен или не настроен — ставить неоткуда.",
+                HttpStatusCode.Conflict);
+        }
+
+        var выпуски = SourceReleases.Current(await source.ListAsync(cancellationToken));
+
+        // ⚠ Без имени — все выбранные, что есть в KMP: отсутствие одного не держит остальные.
+        IReadOnlyList<string> имена = выбран is null ? [.. найден.ManagedNames().Where(выпуски.ContainsKey)] : выпуски.ContainsKey(выбран) ? [выбран] : [];
+
+        if (имена.Count == 0 && найден.ManagedNames().Count > 0)
+        {
+            throw new AppException(
+                KeyManagerErrorCodes.CertificateNotFound,
+                выбран is null
+                    ? "В последнем опросе Key Manager Plus нет сертификатов, выбранных для этого сервера."
+                    : $"В последнем опросе Key Manager Plus нет сертификата {выбран}.",
+                HttpStatusCode.Conflict);
         }
 
         // ⚠ Запрос — строка очереди, а не поле сервера: нажатия во время прохода не теряются и копятся по порядку.
@@ -580,7 +541,12 @@ internal sealed class ServersController(
                     throw Неверно("password", "Задайте пароль учётной записи Kerio.");
                 }
 
-                IReadOnlyList<string> имена = выбран is null ? сервер.ManagedNames() : [выбран];
+                // ⚠ Kerio уже отверг пароль: ещё один вход приближает блокировку учётной записи.
+                if (сервер.AuthRejected)
+                {
+                    throw Неверно("password", "Kerio отверг пароль учётной записи — задайте его заново или нажмите «Проверить» во вкладке «Серверы».");
+                }
+
                 var уже = await db.Set<InstallRequest>().Where(з => з.ServerId == id).Select(з => з.CommonName).ToListAsync(token);
                 var новые = имена.Where(и => !уже.Contains(и, StringComparer.OrdinalIgnoreCase)).ToList();
                 var сейчас = clock.GetUtcNow();
@@ -621,6 +587,8 @@ internal sealed class ServersController(
     [HttpGet("servers/{id:guid}/deployments")]
     public async Task<IReadOnlyList<DeploymentOut>> ServerDeployments(Guid id, [FromQuery] int? limit, CancellationToken cancellationToken)
     {
+        await НайтиAsync(id, tracked: false, cancellationToken);
+
         var сколько = Math.Clamp(limit ?? 20, 1, 200);
 
         var строки = await db.Set<KerioDeployment>()
@@ -720,7 +688,7 @@ internal sealed class ServersController(
     private async Task<IReadOnlyList<ServerOut>> СписокAsync(
         IReadOnlyList<SourceCertificate> выпуски, bool хранилище, CancellationToken cancellationToken)
     {
-        var текущие = ServerView.Current(выпуски);
+        var текущие = SourceReleases.Current(выпуски);
         var поНомеру = хранилище ? ServerView.BySerial(выпуски) : null;
         var дней = await settings.GetAsync(KerioSettings.WarningDays, cancellationToken);
         var пробно = await settings.GetAsync(KerioSettings.DryRun, cancellationToken);
@@ -741,7 +709,7 @@ internal sealed class ServersController(
 
         return ServerView.Of(
             сервер,
-            ServerView.Current(выпуски),
+            SourceReleases.Current(выпуски),
             await settings.GetAsync(KerioSettings.WarningDays, cancellationToken),
             clock.GetUtcNow(),
             await settings.GetAsync(KerioSettings.DryRun, cancellationToken),
@@ -783,7 +751,7 @@ internal sealed class ServersController(
 
     /// <summary>Загрузить сервер, изменить и записать строку журнала — внутри одной транзакции.</summary>
     private async Task<KerioServer> ИзменитьAsync(
-        Guid id, Func<KerioServer, AuditEntry> правка, CancellationToken cancellationToken, bool touch = true)
+        Guid id, Func<KerioServer, CancellationToken, Task<AuditEntry>> правка, CancellationToken cancellationToken, bool ждатьПроход = true)
     {
         KerioServer? итог = null;
 
@@ -793,18 +761,15 @@ internal sealed class ServersController(
                 var сервер = await ЗаблокироватьAsync(id, token) ?? throw НетСервера();
 
                 // ⚠ Проход держит сервер минутами и сохраняет его в конце: правка посреди него молча пропала бы.
-                if (touch && сервер.LeaseUntil is { } аренда && аренда > clock.GetUtcNow())
+                if (ждатьПроход && сервер.LeaseUntil is { } аренда && аренда > clock.GetUtcNow())
                 {
                     throw Занят();
                 }
 
-                var строка = правка(сервер);
+                var строка = await правка(сервер, token);
 
-                if (touch)
-                {
-                    сервер.UpdatedAt = clock.GetUtcNow();
-                    сервер.UpdatedBy = current.Id;
-                }
+                сервер.UpdatedAt = clock.GetUtcNow();
+                сервер.UpdatedBy = current.Id;
 
                 audit.Write(строка);
                 await db.SaveChangesAsync(token);
@@ -848,9 +813,18 @@ internal sealed class ServersController(
         ["auto_deploy"] = с.AutoDeploy,
         ["cleanup_old"] = с.CleanupOld,
         ["verify_ports"] = string.Join(",", с.VerifyPorts),
-        ["notify_emails"] = с.NotifyEmails.Length,
+        ["notify_emails"] = ОтпечатокАдресов(с.NotifyEmails),
         ["enabled"] = с.Enabled,
     };
+
+    /// <summary>⚠ Адреса получателей в журнал не идут — только сколько их и изменился ли список.</summary>
+    private static string ОтпечатокАдресов(string[] адреса)
+    {
+        var хеш = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(string.Join(',', адреса.Select(а => а.ToLowerInvariant()).Order(StringComparer.Ordinal))));
+
+        return $"{адреса.Length}:{Convert.ToHexStringLower(хеш)[..8]}";
+    }
 
     private static Dictionary<string, object?> Разница(Dictionary<string, object?> было, Dictionary<string, object?> стало, bool пароль)
     {
@@ -945,7 +919,7 @@ internal sealed class ServersController(
     {
         var имя = текст?.Trim();
 
-        return string.IsNullOrEmpty(имя) || имя.Length > KerioServer.MaxName
+        return string.IsNullOrEmpty(имя) || имя.Length > KerioServer.MaxName || имя.Any(char.IsControl)
             ? throw Неверно("name", $"Имя сервера — от 1 до {KerioServer.MaxName} знаков.")
             : имя;
     }
@@ -954,7 +928,7 @@ internal sealed class ServersController(
     {
         var логин = текст?.Trim();
 
-        return string.IsNullOrEmpty(логин) || логин.Length > 255
+        return string.IsNullOrEmpty(логин) || логин.Length > 255 || логин.Any(char.IsControl)
             ? throw Неверно("username", "Нужен логин учётной записи Kerio для сервиса.")
             : логин;
     }
@@ -994,15 +968,6 @@ internal sealed class ServersController(
             : throw Неверно("tls_server_name", "Имя в сертификате — DNS-имя, например mail.example.com.");
     }
 
-    private static string? ИмяСертификата(string? текст)
-    {
-        var имя = текст?.Trim();
-
-        return string.IsNullOrEmpty(имя)
-            ? null
-            : имя.Length > 255 ? throw Неверно("common_name", "Слишком длинное имя сертификата.") : имя;
-    }
-
     private static int[] Порты(int[]? порты)
     {
         if (порты is null)
@@ -1034,7 +999,7 @@ internal sealed class ServersController(
             return [];
         }
 
-        var годные = адреса.Select(а => а.Trim()).Where(а => а.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var годные = адреса.Select(а => а?.Trim() ?? string.Empty).Where(а => а.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
         if (годные.Length > KerioServer.MaxNotifyEmails || годные.Any(а => !KerioNotifier.Годен(а)))
         {

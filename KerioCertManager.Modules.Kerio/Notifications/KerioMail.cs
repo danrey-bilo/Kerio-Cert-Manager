@@ -17,6 +17,9 @@ internal sealed class KerioMail : IMailTemplateProvider
 
     public const string Warning = "kerio_warning";
 
+    /// <summary>Событие письма с несколькими предупреждениями в журнале оповещений.</summary>
+    public const string DigestEvent = "alerts_digest";
+
     /// <summary>Таблица подробностей — заполнитель <c>{table:details}</c>.</summary>
     public const string TableName = "details";
 
@@ -37,14 +40,14 @@ internal sealed class KerioMail : IMailTemplateProvider
         new(Failed, MailLocales.Uk, "{title}: {server}",
             "{message}\n\n" + Таблица + "\n\nПодробиці по кроках — у розділі «Журнал встановлень» панелі.\n"),
         new(Failed, MailLocales.En, "{title}: {server}",
-            "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installations log of the panel.\n"),
+            "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installation log of the panel.\n"),
 
         new(Summary, MailLocales.Ru, "{title}",
             "{message}\n\n" + Таблица + "\n\nПодробности по шагам — в разделе «Журнал установок» панели.\n"),
         new(Summary, MailLocales.Uk, "{title}",
             "{message}\n\n" + Таблица + "\n\nПодробиці по кроках — у розділі «Журнал встановлень» панелі.\n"),
         new(Summary, MailLocales.En, "{title}",
-            "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installations log of the panel.\n"),
+            "{message}\n\n" + Таблица + "\n\nStep-by-step details are in the Installation log of the panel.\n"),
 
         new(Warning, MailLocales.Ru, "{title}", "{message}\n\n" + Таблица + "\n"),
         new(Warning, MailLocales.Uk, "{title}", "{message}\n\n" + Таблица + "\n"),
@@ -68,6 +71,17 @@ internal sealed class KerioMail : IMailTemplateProvider
         MailLocales.Uk => ["Сертифікат", "Результат", "Подробиці"],
         _ => ["Certificate", "Result", "Details"],
     };
+
+    /// <summary>Заголовки колонок письма с несколькими предупреждениями.</summary>
+    public static IReadOnlyList<string> DigestColumns(string locale) => locale switch
+    {
+        MailLocales.Ru => ["Условие", "Подробности"],
+        MailLocales.Uk => ["Умова", "Подробиці"],
+        _ => ["Condition", "Details"],
+    };
+
+    /// <summary>Значение строки — фраза, а не данные: только такие идут в перевод (сервер с именем «Журнал» остаётся собой).</summary>
+    public static bool IsPhrase(string key) => key is "reason" or "trigger";
 
     /// <summary>Подписи строк таблицы на языке письма.</summary>
     public static string Label(string key, string locale) => (key, locale) switch

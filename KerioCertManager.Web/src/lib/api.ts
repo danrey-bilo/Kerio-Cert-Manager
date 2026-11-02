@@ -140,7 +140,7 @@ async function request<T>(method: string, path: string, body?: unknown, stepUp =
 }
 
 /** ⚠ Всегда octet-stream: иначе Chrome на телефоне дописывает расширение (.crt.cer). */
-export function saveFile(data: Blob, name: string) {
+function saveFile(data: Blob, name: string) {
   const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
   const link = document.createElement('a');
   link.href = url;

@@ -2,7 +2,7 @@
 #   ./scripts/gen-secrets.sh
 #   ./scripts/set-tunnel-token.sh # токен туннеля — в файл секрета, не в .env
 #   cp .env.example .env
-#   docker load -i kerio-cert-manager-image-vX.Y.Z.tar   # образ из архива релиза
+#   docker compose pull api                # образ из Docker Hub; без интернета — docker load -i архив релиза
 #   docker compose run --rm migrate
 #   docker compose run --rm api create-superadmin --email admin@example.com
 #   docker compose up -d
@@ -18,14 +18,14 @@ x-logging: &logging
 
 services:
   api:
-    # Образ из архива релиза (`docker load`); версия — KCM_IMAGE в .env.
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    # Образ из Docker Hub; версия — KCM_IMAGE в .env.
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     build:
       context: .
       dockerfile: KerioCertManager.Api/Dockerfile
     restart: unless-stopped
-    # Остановка ждёт откат установки, прерванной посреди: см. HostOptions.ShutdownTimeout.
-    stop_grace_period: 2m
+    # Остановка ждёт откат установки, прерванной посреди: дольше HostOptions.ShutdownTimeout.
+    stop_grace_period: 2m30s
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: "8001"
@@ -73,7 +73,7 @@ services:
 
   # Схема и роль kcm_app, разово: docker compose run --rm migrate. Единственная знает пароль владельца.
   migrate:
-    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.7}
+    image: ${KCM_IMAGE:-danreero/kerio_cert_manager:1.0.8}
     profiles: ["tools"]
     command: ["migrate"]
     environment:

@@ -33,6 +33,13 @@ if (args is [Bootstrap.Health, ..])
     return await Bootstrap.ProbeAsync();
 }
 
+// ⚠ Опечатка в команде не должна молча поднять второй сервер.
+if (args is [var команда, ..] && !команда.StartsWith('-') && !команда.Contains('=') && !Bootstrap.IsCommand(args))
+{
+    await Console.Error.WriteLineAsync($"Неизвестная команда «{команда}». Есть: {Bootstrap.Commands}.");
+    return 2;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 var rateLimits = new RateLimitGroups(builder.Configuration);
@@ -134,7 +141,6 @@ builder.Services.AddScoped<IPublicOrigin, PublicOrigin>();
 builder.Services.AddScoped<RequestCurrentUser>();
 builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<RequestCurrentUser>());
 builder.Services.AddScoped<CurrentUserMiddleware>();
-builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<LogAuditWriter>();
 builder.Services.Decorate<IAuditWriter>((журнал, sp) => new LoggedAuditWriter(журнал, sp.GetRequiredService<LogAuditWriter>()));
@@ -172,7 +178,11 @@ builder.Services.AddHealthChecks()
     .AddCheck<DatabaseReadiness>("database", tags: ["ready"]);
 
 // ⚠ Установка, прерванная остановкой после активации, возвращает прежний сертификат — это до минуты с небольшим.
-builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(2));
+builder.Services.Configure<HostOptions>(options =>
+{
+    options.ShutdownTimeout = TimeSpan.FromMinutes(2);
+    options.ServicesStopConcurrently = true;
+});
 
 // ⚠ X-Forwarded-* — только от названных прокси; -Host не принимается: Cloudflare пропускает его от клиента.
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -539,8 +549,10 @@ static async Task WriteReadinessAsync(HttpContext context, HealthReport report)
 {
     context.Response.ContentType = "application/json; charset=utf-8";
 
-    if (report.Status == HealthStatus.Healthy)
+    // ⚠ Решает база: нехватка партиций журнала уже в логе, а cloudflared ждёт здоровья API — панель не должна падать из-за неё.
+    if (report.Entries.TryGetValue("database", out var база) && база.Status == HealthStatus.Healthy)
     {
+        context.Response.StatusCode = StatusCodes.Status200OK;
         await context.Response.WriteAsync("{\"status\":\"ok\"}", context.RequestAborted);
         return;
     }
@@ -556,7 +568,9 @@ static async Task WriteReadinessAsync(HttpContext context, HealthReport report)
         failed,
         context.Items.TryGetValue(RequestIdMiddleware.ItemKey, out var id) ? id as string ?? "" : "");
 
-    await context.Response.WriteAsync(JsonSerializer.Serialize(body), context.RequestAborted);
+    await context.Response.WriteAsync(
+        JsonSerializer.Serialize(body, new JsonSerializerOptions { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) }),
+        context.RequestAborted);
 }
 
 /// <summary>Точка входа — для интеграционных тестов (<c>WebApplicationFactory</c>).</summary>
