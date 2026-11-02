@@ -3,7 +3,7 @@
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 #
-# Сервис — образ из Docker Hub, собирается только эмулятор. Свой образ сервиса: KCM_DEMO_IMAGE=<образ>.
+# Сервис — закрытый образ из Docker Hub (сначала docker login), собирается только эмулятор. Свой образ сервиса: KCM_DEMO_IMAGE=<образ>.
 #
 #   Панель                http://localhost:18001      admin@demo.local / Demo-Admin-Passw0rd!
 #   Панель стенда         http://localhost:18080      «продлить» сертификат в KMP, «залипнуть» Kerio

@@ -9,9 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/danrey-bilo/Kerio-Cert-Manager/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/danrey-bilo/Kerio-Cert-Manager?style=flat-square&color=2563eb&label=release"></a>
-  <a href="https://hub.docker.com/r/danreero/kerio_cert_manager"><img alt="Docker Hub" src="https://img.shields.io/docker/v/danreero/kerio_cert_manager?sort=semver&style=flat-square&logo=docker&logoColor=white&label=docker%20hub&color=2496ed"></a>
-  <a href="LICENSE"><img alt="License: free to use, no code copying" src="https://img.shields.io/badge/license-free%20to%20use%20%C2%B7%20no%20code%20copying-0f172a?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: proprietary" src="https://img.shields.io/badge/license-proprietary-0f172a?style=flat-square"></a>
   <img alt="Kerio Connect 9.0.2+" src="https://img.shields.io/badge/Kerio%20Connect-9.0.2%2B%20%C2%B7%20tested%2010.0.6-0ea5e9?style=flat-square">
   <img alt="Key Manager Plus 7.1.1+" src="https://img.shields.io/badge/Key%20Manager%20Plus-7.1.1%2B-0ea5e9?style=flat-square">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white">
@@ -60,7 +58,7 @@ Kerio Cert Manager does it for you:
 | **Web panel** | **Overview** — every Kerio store: what is served, what comes from KMP, what was placed by hand, what expires. **Servers** — connection, sync, the connect wizard, editing, deletion with a 2FA code. **Notifications** — events, thresholds, recipients, a test e-mail, history. Also: KMP certificates (view only), installation log, audit log with CSV export, settings, users. Works on phones |
 | **Three languages** | English, Ukrainian and Russian — every user picks their own in the **Profile**. The panel and the server texts (errors, installation steps, statuses) follow it; notification e-mails have their own language setting |
 | **Security** | Password plus authenticator app (TOTP), a fresh code before every sensitive action, AES-256-GCM encryption of every secret, strict TLS to KMP, a pinned fingerprint or a CA for Kerio, hash-chained audit log |
-| **Deployment** | One public Docker image on Docker Hub ([`danreero/kerio_cert_manager`](https://hub.docker.com/r/danreero/kerio_cert_manager)), PostgreSQL and Cloudflare Tunnel — no inbound ports on your server. Portainer-friendly |
+| **Deployment** | One private Docker image on Docker Hub (`danreero/kerio_cert_manager`), PostgreSQL and Cloudflare Tunnel — no inbound ports on your server. Portainer-friendly |
 
 ## Screenshots
 
@@ -143,17 +141,17 @@ service ports you want verified), to your SMTP server and to Cloudflare. No inbo
 ## Installation with Portainer
 
 The **`kerio-cert-manager-vX.Y.Z.zip`** archive from [Releases](../../releases) has everything for the stack:
-`docker-compose.yml`, `.env.example` with hints and a step-by-step README. The stack pulls the public image
-[`danreero/kerio_cert_manager`](https://hub.docker.com/r/danreero/kerio_cert_manager) from Docker Hub by itself;
-the image archive inside the release is only for servers without internet access (**Images → Import**).
+`docker-compose.yml`, `.env.example` with hints and a step-by-step README. The stack pulls the private image
+`danreero/kerio_cert_manager` from Docker Hub by itself once Portainer can sign in there.
 
-1. Fill in `.env.example`: `KCM_MASTER_KEK` (`openssl rand -base64 32`), `POSTGRES_PASSWORD` and
+1. **Registries → Add registry → DockerHub**: your Docker Hub login and a read-only access token.
+2. Fill in `.env.example`: `KCM_MASTER_KEK` (`openssl rand -base64 32`), `POSTGRES_PASSWORD` and
    `KCM_APP_PASSWORD` (`openssl rand -hex 24`, different ones), `CLOUDFLARE_TUNNEL_TOKEN`,
    `KCM_INIT_ADMIN_EMAIL` and `KCM_INIT_ADMIN_PASSWORD`.
-2. **Stacks → Add stack** → name `kerio-cert-manager` → **Upload** → `docker-compose.yml` →
+3. **Stacks → Add stack** → name `kerio-cert-manager` → **Upload** → `docker-compose.yml` →
    **Load variables from .env file** → **Deploy the stack**.
-3. In Cloudflare, for the tunnel: **Public Hostname** → `HTTP` → `api:8001`. Turn on Cloudflare Access (below).
-4. Within an hour, sign in as the administrator and connect an authenticator app; then clear
+4. In Cloudflare, for the tunnel: **Public Hostname** → `HTTP` → `api:8001`. Turn on Cloudflare Access (below).
+5. Within an hour, sign in as the administrator and connect an authenticator app; then clear
    `KCM_INIT_ADMIN_PASSWORD` in the stack variables → **Update the stack**.
 
 The stack turns its variables into Docker secrets, so they are not visible in `docker inspect`. The `migrate`
@@ -172,8 +170,11 @@ clone the repository:
 unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 ```
 
-**2. Image.** The public image from Docker Hub (without internet access — `docker load -i
-kerio-cert-manager-image-vX.Y.Z.tar` from the main release archive):
+**2. Image.** The image on Docker Hub is private: sign in with a read-only access token, then pull it.
+
+```bash
+docker login -u your-docker-hub-login
+```
 
 ```bash
 docker pull danreero/kerio_cert_manager:1.0.9
@@ -294,7 +295,7 @@ The full walkthrough with screenshots is in the [user guide](docs/USER-GUIDE.md)
 - **Append-only audit log** in the database, hash-chained: who signed in, what changed, who installed what, who
   was denied.
 - **Supply chain**: every release passes tests, a dependency audit and an image vulnerability scan; the image ships
-  with an SBOM and signed build provenance.
+  with an SBOM and build provenance.
 
 Recommended: Cloudflare Access in front of the panel, a dedicated Kerio account per server, a dedicated KMP account
 for the API key, a pinned image version in `.env`.
@@ -344,7 +345,8 @@ git clone https://github.com/danrey-bilo/Kerio-Cert-Manager.git && cd Kerio-Cert
 docker compose -f docker-compose.demo.yml up -d --build
 ```
 
-The service comes from Docker Hub; only the emulator is built locally.
+The service comes from Docker Hub (the image is private: run `docker login` first); only the emulator is built
+locally.
 
 | What | Address | Sign-in |
 |---|---|---|
@@ -371,14 +373,14 @@ starts only with `KCM_DEMO_MODE=true`; it is not reachable from other computers.
 
 ## License
 
-Kerio Cert Manager is **free to use**, but it is **not open source**. See [LICENSE](LICENSE)
-([Russian translation](LICENSE.ru.md)).
+Kerio Cert Manager is **proprietary software**: use requires the owner's permission, and the code is confidential.
+See [LICENSE](LICENSE) ([Russian translation](LICENSE.ru.md)).
 
-| ✅ Allowed | ❌ Not allowed without written permission |
+| ✅ With the owner's permission | ❌ Not allowed without written permission |
 |---|---|
-| Install and run the official builds for any purpose, including inside your company, on any number of servers, free of charge | Copying the source code, in whole or in part |
-| Back up the official builds and adapt the shipped deployment files to run the service | Modifying the code, building or running modified versions |
-| View the source code to evaluate it and review its security | Redistributing, selling or sublicensing the code or the builds |
+| Install and run the official builds within the limits of that permission | Viewing or copying the source code, in whole or in part |
+| Back up the official builds and adapt the shipped deployment files to run the service | Modifying the code, building or running modified versions, reverse engineering the builds |
+| Share them with the people in your organization who operate the service | Redistributing, selling or sublicensing the code or the builds |
 
 Kerio and Kerio Connect are trademarks of their owners; ManageEngine and Key Manager Plus are trademarks of Zoho
 Corporation. This project is not affiliated with them. Third-party open-source components inside the builds remain
@@ -386,5 +388,5 @@ under their own licenses.
 
 ## Contributing
 
-Code contributions are not accepted. Bug reports and suggestions are welcome in [Issues](../../issues). Please
-report security problems privately — see [SECURITY.md](SECURITY.md).
+Code contributions are not accepted. Send bug reports and suggestions to the owner of this repository; for security
+problems see [SECURITY.md](SECURITY.md).

@@ -29,6 +29,7 @@ if [[ "$(newest 'v[0-9]*')" == "$version" ]]; then
     tags+=(-t "$image:latest")
 fi
 
-"${build[@]}" --sbom=true --provenance=mode=max --push "${tags[@]}"
+# ⚠ mode=min: с mode=max в образ попадает весь Dockerfile с комментариями.
+"${build[@]}" --sbom=true --provenance=mode=min --push "${tags[@]}"
 
 echo "Опубликовано: ${tags[*]/#-t/}" | tr -s " "

@@ -4,9 +4,8 @@
 A certificate is renewed in Key Manager Plus, and minutes later it is installed on every Kerio Connect server,
 verified over TLS on every port, rolled back if it does not come up, and the administrators get a report by e-mail.
 
-- Source, documentation and releases: [github.com/danrey-bilo/Kerio-Cert-Manager](https://github.com/danrey-bilo/Kerio-Cert-Manager)
-- User guide (English and Russian): [docs](https://github.com/danrey-bilo/Kerio-Cert-Manager/tree/main/docs)
-- Changelog: [CHANGELOG.md](https://github.com/danrey-bilo/Kerio-Cert-Manager/blob/main/CHANGELOG.md)
+Documentation, changelog and releases are in the private repository
+[github.com/danrey-bilo/Kerio-Cert-Manager](https://github.com/danrey-bilo/Kerio-Cert-Manager), access by invitation.
 
 ## Tags
 
@@ -18,13 +17,14 @@ verified over TLS on every port, rolled back if it does not come up, and the adm
 
 ## Run with Portainer
 
-1. Download `kerio-cert-manager-vX.Y.Z.zip` from [Releases](https://github.com/danrey-bilo/Kerio-Cert-Manager/releases/latest):
+1. **Registries → Add registry → DockerHub**: your Docker Hub login and a read-only access token.
+2. Download `kerio-cert-manager-vX.Y.Z.zip` from [Releases](https://github.com/danrey-bilo/Kerio-Cert-Manager/releases/latest):
    `docker-compose.yml`, `.env.example` with hints and a step-by-step README.
-2. Fill in `.env.example`: the master key, two database passwords, the Cloudflare Tunnel token and the first
+3. Fill in `.env.example`: the master key, two database passwords, the Cloudflare Tunnel token and the first
    administrator (the commands to generate them are in the file).
-3. **Stacks → Add stack → Upload** `docker-compose.yml` → **Load variables from .env file** → **Deploy the stack**.
+4. **Stacks → Add stack → Upload** `docker-compose.yml` → **Load variables from .env file** → **Deploy the stack**.
    The image is pulled from here; the `migrate` service prepares the database before the service starts.
-4. To update: set a new version in `KCM_IMAGE` → **Update the stack**.
+5. To update: set a new version in `KCM_IMAGE` → **Update the stack**.
 
 Command-line installation with secrets in files:
 [README](https://github.com/danrey-bilo/Kerio-Cert-Manager#installation-from-the-command-line).
@@ -44,5 +44,5 @@ publishing and ships with an SBOM and build provenance.
 
 ## License
 
-Free to use. Copying, modifying and redistributing the code is not allowed —
+Proprietary software: use requires the owner's permission, and the code is confidential —
 [LICENSE](https://github.com/danrey-bilo/Kerio-Cert-Manager/blob/main/LICENSE).

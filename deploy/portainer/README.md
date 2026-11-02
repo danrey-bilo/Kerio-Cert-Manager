@@ -6,13 +6,16 @@
 |---|---|
 | `docker-compose.yml` | Стек: база, миграции, сервис, Cloudflare Tunnel |
 | `.env.example` | Переменные стека с подсказками — секреты, токен туннеля, первый администратор |
-| `kerio-cert-manager-image-vX.Y.Z.tar` | Образ сервиса — только для серверов без интернета |
 
 ## 1. Образ
 
-Открытый образ в Docker Hub — [`danreero/kerio_cert_manager`](https://hub.docker.com/r/danreero/kerio_cert_manager):
-стек скачает его сам. `KCM_IMAGE` в `.env.example` — закреплённая версия `danreero/kerio_cert_manager:X.Y.Z`.
-Без интернета: **Portainer → Images → Import** → `kerio-cert-manager-image-vX.Y.Z.tar` → **Upload**.
+Образ в Docker Hub закрытый — `danreero/kerio_cert_manager`. Сначала дайте Portainer доступ к нему:
+**Portainer → Registries → Add registry → DockerHub** → логин и токен только для чтения (Docker Hub → **Account
+settings → Personal access tokens**). После этого стек скачает образ сам. `KCM_IMAGE` в `.env.example` — закреплённая
+версия `danreero/kerio_cert_manager:X.Y.Z`.
+
+Без интернета: на компьютере со входом в Docker Hub выполните `docker save danreero/kerio_cert_manager:X.Y.Z -o
+kerio-cert-manager.tar`, затем на сервере **Portainer → Images → Import** → этот файл → **Upload**.
 
 ## 2. Переменные
 
@@ -103,6 +106,8 @@ docker exec kerio-cert-manager-postgres-1 pg_dump -U kcm kcm > kcm.sql
 
 ## Если что-то не так
 
+- **`pull access denied` или `denied: requested access`** — Portainer не может войти в Docker Hub: проверьте запись
+  в **Registries** и срок токена.
 - **`migrate` завершился с ошибкой** — Containers → `kerio-cert-manager-migrate-1` → Logs: там
   причина (не заполнена переменная, слабый пароль администратора, нет доступа к базе).
 - **`api` не стартует** — Logs контейнера `api`; чаще всего не тот `KCM_APP_PASSWORD` или

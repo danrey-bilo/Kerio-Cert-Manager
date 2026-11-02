@@ -4,9 +4,9 @@
 
 ## Reporting a vulnerability
 
-Please do not report security problems in public issues. Use GitHub's private reporting instead:
-**Security → Report a vulnerability** in this repository. Describe what you found, how to reproduce it and which
-version you use. You will get an answer as soon as possible; a fix is released as a new version, and the
+Report security problems directly to the owner of this repository, not in Issues or other shared places. Describe
+what you found, how to reproduce it and which version you use. You will get an answer as soon as possible; a fix is
+released as a new version, and the
 [changelog](CHANGELOG.md) says what was fixed.
 
 ## Supported versions
@@ -29,10 +29,9 @@ the [README](README.md#security).
 
 ## Как сообщить об уязвимости
 
-Не пишите о проблемах безопасности в открытых Issues. Используйте закрытое сообщение GitHub:
-**Security → Report a vulnerability** в этом репозитории. Опишите, что нашли, как это повторить и на какой версии.
-Ответ придёт как можно скорее; исправление выходит новой версией, а в [CHANGELOG](CHANGELOG.md) написано, что
-исправлено.
+О проблемах безопасности сообщайте напрямую владельцу этого репозитория, а не в Issues и не в общих каналах.
+Опишите, что нашли, как это повторить и на какой версии. Ответ придёт как можно скорее; исправление выходит новой
+версией, а в [CHANGELOG](CHANGELOG.md) написано, что исправлено.
 
 ## Какие версии исправляются
 
