@@ -349,6 +349,78 @@ public sealed class DeployerTests
         стенд.A.FailedLogins.ShouldBe(2, "«Проверить» входит всегда");
     }
 
+    /// <summary>⚠ Порт не отвечает, остальные подают новый: установка удалась, перезапуск службы тут не поможет.</summary>
+    [Fact]
+    public async Task Имя_порт_не_отвечает_установка_удалась_с_замечанием()
+    {
+        await using var стенд = await Stand.StartAsync();
+        var сервер = стенд.Сервер(стенд.A, Stand.Почта);
+        var порт = стенд.A.ServicePorts[0];
+        var шаги = new List<DeployStep>();
+
+        var итог = await УстановитьИмя(стенд, сервер, new ЗакрытыеПорты(стенд.Tls, порт), шаги);
+
+        итог.Outcome.ShouldBe(DeployOutcomes.Succeeded, итог.Error);
+        итог.Error.ShouldBeNull();
+        итог.Warning.ShouldNotBeNull();
+        итог.Warning.ShouldContain($"порты: {порт}.");
+        итог.Warning.ShouldContain("уберите их из проверяемых");
+        итог.Warning.ShouldNotContain("перезапустите");
+        шаги.ShouldContain(ш => ш.Step == DeploySteps.Verify && !ш.Ok);
+        шаги.ShouldNotContain(ш => ш.Message.Contains("на всех проверяемых портах", StringComparison.Ordinal) && ш.Message.StartsWith("Для ", StringComparison.Ordinal));
+    }
+
+    /// <summary>Не ответил ни один порт: подаётся ли новый — неизвестно, и службу перезапускать незачем.</summary>
+    [Fact]
+    public async Task Имя_ни_один_порт_не_отвечает_отказ_без_совета_перезапустить()
+    {
+        await using var стенд = await Stand.StartAsync();
+        var сервер = стенд.Сервер(стенд.A, Stand.Почта);
+
+        var итог = await УстановитьИмя(стенд, сервер, new ИмяНеОтвечает(стенд.Tls));
+
+        итог.Outcome.ShouldBe(DeployOutcomes.Failed);
+        итог.Error.ShouldNotBeNull();
+        итог.Error.ShouldContain("сервер не ответил ни на одном порту");
+        итог.Error.ShouldNotContain("перезапустите");
+    }
+
+    /// <summary>Порт отвечает, но подаёт другой сертификат: совет перезапустить службу уместен.</summary>
+    [Fact]
+    public async Task Имя_порт_подаёт_другой_отказ_с_советом_перезапустить()
+    {
+        await using var стенд = await Stand.StartAsync();
+        var сервер = стенд.Сервер(стенд.A, Stand.Почта);
+        var прежнийSha = Fingerprints.Sha256(стенд.A.ServedCertificate);
+
+        var итог = await УстановитьИмя(стенд, сервер, new ЗалипшийПорт(стенд.Tls, стенд.A.ServicePorts[0], прежнийSha));
+
+        итог.Outcome.ShouldBe(DeployOutcomes.Failed);
+        итог.Error.ShouldNotBeNull();
+        итог.Error.ShouldContain("перезапустите службу Kerio Connect");
+        итог.Warning.ShouldBeNull();
+    }
+
+    private static Task<DeployResult> УстановитьИмя(Stand стенд, KerioServer сервер, ITlsInspector tls, List<DeployStep>? шаги = null)
+    {
+        var выпуск = стенд.Host.Kmp.Issue("webmail.demo.local", TimeSpan.FromDays(90));
+        var deployer = new KerioDeployer(стенд.Источник, стенд.Соединитель, tls, TimeProvider.System, NullLogger<KerioDeployer>.Instance);
+
+        return deployer.DeployDomainAsync(
+            new DeployRequest(
+                сервер,
+                new SourceCertificate(выпуск.CommonName, выпуск.Serial, null, выпуск.CreatedAt, DateTimeOffset.UtcNow),
+                false,
+                false,
+                TimeSpan.FromSeconds(1)),
+            шаг =>
+            {
+                шаги?.Add(шаг);
+                return Task.CompletedTask;
+            },
+            Ct);
+    }
+
     private static Task<DeployResult> Установить(
         Stand стенд,
         KerioServer сервер,
@@ -404,6 +476,30 @@ public sealed class DeployerTests
 
             return port == порт ? подан with { Sha256 = new string('F', 64), Subject = "неизвестный" } : подан;
         }
+    }
+
+    /// <summary>Порты, которые не отвечают: на остальных — настоящая проверка с именем.</summary>
+    private sealed class ЗакрытыеПорты(ITlsInspector настоящий, params int[] порты) : ITlsInspector
+    {
+        public Task<ServedCertificate> InspectAsync(string host, int port, CancellationToken cancellationToken = default) =>
+            InspectAsync(host, port, null, cancellationToken);
+
+        public Task<ServedCertificate> InspectAsync(string host, int port, string? serverName, CancellationToken cancellationToken = default) =>
+            порты.Contains(port)
+                ? throw new TlsException($"{host}:{port} недоступен: порт закрыт.")
+                : настоящий.InspectAsync(host, port, serverName, cancellationToken);
+    }
+
+    /// <summary>Проверка с именем не проходит ни на одном порту; сертификат по умолчанию виден как обычно.</summary>
+    private sealed class ИмяНеОтвечает(ITlsInspector настоящий) : ITlsInspector
+    {
+        public Task<ServedCertificate> InspectAsync(string host, int port, CancellationToken cancellationToken = default) =>
+            настоящий.InspectAsync(host, port, cancellationToken);
+
+        public Task<ServedCertificate> InspectAsync(string host, int port, string? serverName, CancellationToken cancellationToken = default) =>
+            string.IsNullOrEmpty(serverName)
+                ? настоящий.InspectAsync(host, port, serverName, cancellationToken)
+                : throw new TlsException($"{host}:{port} недоступен: порт закрыт.");
     }
 
     /// <summary>Порт службы «застрял» на прежнем сертификате, пока активен новый.</summary>

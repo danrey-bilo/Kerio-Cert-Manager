@@ -27,11 +27,11 @@ internal sealed class KerioMail : IMailTemplateProvider
 
     public IReadOnlyList<MailTemplate> Templates { get; } =
     [
-        new(Deployed, MailLocales.Ru, "Сертификат {common_name} установлен на {server}",
+        new(Deployed, MailLocales.Ru, "{title} на {server}",
             "Новый SSL-сертификат установлен на сервер Kerio Connect и подтверждён по TLS.\n\n" + Таблица + "\n\n{message}\n"),
-        new(Deployed, MailLocales.Uk, "Сертифікат {common_name} встановлено на {server}",
+        new(Deployed, MailLocales.Uk, "{title} на {server}",
             "Новий SSL-сертифікат встановлено на сервер Kerio Connect і підтверджено через TLS.\n\n" + Таблица + "\n\n{message}\n"),
-        new(Deployed, MailLocales.En, "Certificate {common_name} installed on {server}",
+        new(Deployed, MailLocales.En, "{title} on {server}",
             "A new SSL certificate has been installed on the Kerio Connect server and confirmed over TLS.\n\n" + Таблица
             + "\n\n{message}\n"),
 

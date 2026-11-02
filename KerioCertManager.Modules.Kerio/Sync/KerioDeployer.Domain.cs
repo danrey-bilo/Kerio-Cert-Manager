@@ -28,6 +28,7 @@ internal sealed partial class KerioDeployer
         string? поУмолчаниюSha = null;
         string? новый = null;
         string? убран = null;
+        string? замечание = null;
         var импортирован = false;
         var вернули = true;
 
@@ -217,32 +218,50 @@ internal sealed partial class KerioDeployer
             {
                 await Отметить(DeploySteps.Verify, $"Проверка по TLS с именем {имя} на портах {string.Join(", ", порты)}.");
 
-                if (await ДождатьсяAsync(server, порты, пара.Sha256, ПерваяПроверкаИмени, cancellationToken, имя) is not null)
+                var отказ = await ДождатьсяAsync(server, порты, пара.Sha256, ПерваяПроверкаИмени, cancellationToken, имя);
+
+                if (отказ is not null)
                 {
-                    var мешают = версии.Where(в => в.NotAfter >= пара.NotAfter).ToList();
-                    var свои = мешают.Where(в => в.Serial is { } номер && номераKmp.Contains(номер)).ToList();
-                    var чужая = мешают.FirstOrDefault(в => в.Serial is not { } номер || !номераKmp.Contains(номер));
-
-                    if (чужая is not null)
+                    // Новый уже подаётся, другого нигде нет — мешающих версий быть не может.
+                    if (!отказ.ТолькоНеОтветившие)
                     {
-                        throw new DeployStepException(
-                            DeploySteps.Verify,
-                            $"Для {имя} Kerio подаёт «{чужая.Id}» ({чужая.Subject}, до {чужая.NotAfter:yyyy-MM-dd}) — он не из Key Manager "
-                            + "Plus и действует дольше нового. Сервис чужие сертификаты не удаляет: уберите его в Kerio, если он больше не нужен.");
+                        var мешают = версии.Where(в => в.NotAfter >= пара.NotAfter).ToList();
+                        var свои = мешают.Where(в => в.Serial is { } номер && номераKmp.Contains(номер)).ToList();
+                        var чужая = мешают.FirstOrDefault(в => в.Serial is not { } номер || !номераKmp.Contains(номер));
+
+                        if (чужая is not null)
+                        {
+                            throw new DeployStepException(
+                                DeploySteps.Verify,
+                                $"Для {имя} Kerio подаёт «{чужая.Id}» ({чужая.Subject}, до {чужая.NotAfter:yyyy-MM-dd}) — он не из Key Manager "
+                                + "Plus и действует дольше нового. Сервис чужие сертификаты не удаляет: уберите его в Kerio, если он больше не нужен.");
+                        }
+
+                        убран = await УбратьAsync(сессия, [.. свои.Select(в => в.Id)], выпуск.CommonName, "мешают новой версии", Отметить, cancellationToken);
+                        версии = [.. версии.Where(в => свои.All(с => с.Id != в.Id))];
                     }
 
-                    убран = await УбратьAsync(сессия, [.. свои.Select(в => в.Id)], выпуск.CommonName, "мешают новой версии", Отметить, cancellationToken);
-                    версии = [.. версии.Where(в => свои.All(с => с.Id != в.Id))];
-
-                    if (await ДождатьсяAsync(server, порты, пара.Sha256, request.VerifyTimeout, cancellationToken, имя) is { } отказ)
-                    {
-                        throw new DeployStepException(
-                            DeploySteps.Verify,
-                            отказ + $" Новый сертификат лежит в хранилище Kerio; чтобы он подавался для {имя}, перезапустите службу Kerio Connect.");
-                    }
+                    отказ = await ДождатьсяAsync(server, порты, пара.Sha256, request.VerifyTimeout, cancellationToken, имя);
                 }
 
-                await Отметить(DeploySteps.Verify, $"Для {имя} подаётся новый сертификат на всех проверяемых портах.");
+                if (отказ is { ТолькоНеОтветившие: true })
+                {
+                    // ⚠ Установка удалась: сертификат подаётся, а порту, который не отвечает, перезапуск службы не поможет.
+                    замечание = $"Не отвечают по TLS порты: {string.Join(", ", отказ.НеОтветили)}. На остальных новый сертификат подаётся; проверьте эти порты или уберите их из проверяемых.";
+                    await Отметить(DeploySteps.Verify, замечание, false);
+                }
+                else if (отказ is not null)
+                {
+                    throw new DeployStepException(
+                        DeploySteps.Verify,
+                        отказ.Текст + (отказ.ЕстьДругой
+                            ? $" Новый сертификат лежит в хранилище Kerio; чтобы он подавался для {имя}, перезапустите службу Kerio Connect."
+                            : " Новый сертификат лежит в хранилище Kerio; сервер не ответил ни на одном порту, следующий проход проверит снова."));
+                }
+                else
+                {
+                    await Отметить(DeploySteps.Verify, $"Для {имя} подаётся новый сертификат на всех проверяемых портах.");
+                }
             }
 
             if (server.CleanupOld)
@@ -266,7 +285,7 @@ internal sealed partial class KerioDeployer
 
             await Отметить(DeploySteps.Done, $"В хранилище Kerio — {пара.Subject} до {пара.NotAfter:yyyy-MM-dd}; сертификат по умолчанию не изменён.");
 
-            return new DeployResult(DeployOutcomes.Succeeded, пара.Sha256, пара.NotBefore, пара.NotAfter, новый, убран, поУмолчаниюSha, null, null);
+            return new DeployResult(DeployOutcomes.Succeeded, пара.Sha256, пара.NotBefore, пара.NotAfter, новый, убран, поУмолчаниюSha, null, null, Warning: замечание);
         }
         // ⚠ Отмена до импорта — просто выход.
         catch (Exception ошибка) when (!(ошибка is OperationCanceledException && cancellationToken.IsCancellationRequested)

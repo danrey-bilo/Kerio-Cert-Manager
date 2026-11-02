@@ -219,6 +219,7 @@ export interface StoreCert {
   served: boolean;
   origin: Origin;
   kmp_common_name: string | null;
+  kmp_serial: string | null;
   state: CertState;
   update_from: string | null;
   /** Рядом лежит версия этого имени новее, а эту Kerio не подаёт: в обзоре не показывается. */

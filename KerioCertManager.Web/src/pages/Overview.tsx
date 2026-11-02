@@ -194,6 +194,7 @@ function rows(s: KerioServer, warning: number): Row[] {
     served: true,
     origin: managed ? 'managed' : 'foreign',
     kmp_common_name: null,
+    kmp_serial: null,
     update_from: null,
     superseded: false,
     state: days === null ? 'unknown' : days < 0 ? 'expired' : days <= warning ? 'expiring' : 'ok',

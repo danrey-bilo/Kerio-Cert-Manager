@@ -100,6 +100,7 @@ internal sealed record StoreCertOut(
     [property: JsonPropertyName("served")] bool Served,
     [property: JsonPropertyName("origin")] string Origin,
     [property: JsonPropertyName("kmp_common_name")] string? KmpCommonName,
+    [property: JsonPropertyName("kmp_serial")] string? KmpSerial,
     [property: JsonPropertyName("state")] string State,
     [property: JsonPropertyName("update_from")] string? UpdateFrom,
     [property: JsonPropertyName("superseded")] bool Superseded);

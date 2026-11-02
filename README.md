@@ -176,7 +176,7 @@ unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 kerio-cert-manager-image-vX.Y.Z.tar` from the main release archive):
 
 ```bash
-docker pull danreero/kerio_cert_manager:1.0.8
+docker pull danreero/kerio_cert_manager:1.0.9
 ```
 
 **3. Secrets.** The script creates the master encryption key and the two database passwords in `secrets/`.

@@ -892,6 +892,38 @@ public sealed class KerioApi(KerioCertManagerHost host) : IAsyncLifetime
         последняя["error"]!.GetValue<string>().ShouldContain("старше установленного");
     }
 
+    /// <summary>⚠ Порт в списке проверки закрыт, остальные подают новый: это установка, а не отказ, и письмо называет порт.</summary>
+    [Fact]
+    public async Task Закрытый_порт_не_делает_установку_неудачной()
+    {
+        НастроитьПочту();
+        const string имя = "a.demo.local";
+        var kerio = Стенд.Kerio[0];
+        Стенд.Kmp.Issue(имя, TimeSpan.FromDays(90));
+
+        var id = await ПодключитьAsync(kerio);
+        var клиент = host.CreateClient();
+        var закрытый = KerioCertManager.Emulators.EmulatorHost.FreePort();
+        (await клиент.PatchAsJsonAsync($"{Серверы}/{id}", new { verify_ports = new[] { закрытый }, extra_common_names = new[] { имя } }, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ЦиклAsync();
+
+        var последняя = (await клиент.GetFromJsonAsync<JsonArray>($"{Серверы}/{id}/deployments", Ct))![0]!;
+        последняя["outcome"]!.GetValue<string>().ShouldBe("succeeded");
+        последняя["error"]!.GetValue<string>().ShouldContain($"порты: {закрытый}.");
+
+        var письмо = (await клиент.GetFromJsonAsync<JsonArray>($"/api/kerio/notifications?server_id={id}", Ct))!
+            .First(з => з!["event"]!.GetValue<string>() == "deployed")!;
+        письмо["title"]!.GetValue<string>().ShouldBe($"🟠 Сертификат {имя} установлен");
+        письмо["level"]!.GetValue<string>().ShouldBe("warning");
+
+        // ⚠ Метка сервера на вкладке «Сертификаты» — точное равенство этих двух номеров.
+        var обзор = await клиент.GetFromJsonAsync<JsonObject>("/api/kerio/overview", Ct);
+        var известные = await клиент.GetFromJsonAsync<JsonArray>("/api/keymanager/certificates", Ct);
+        обзор!["servers"]![0]!["store"]!.AsArray().Single(з => з!["subject"]!.GetValue<string>() == имя)!["kmp_serial"]!.GetValue<string>()
+            .ShouldBe(известные!.Single(з => з!["common_name"]!.GetValue<string>() == имя)!["serial_number"]!.GetValue<string>());
+    }
+
     /// <summary>Несколько условий разом — одно письмо, иначе проход с десятком имён завалит ящик.</summary>
     [Fact]
     public async Task Несколько_условий_разом_одно_письмо()

@@ -42,6 +42,19 @@ public sealed class QueueReportTests
         ]);
     }
 
+    /// <summary>Встало, но один порт не ответил: счёт не меняется, значок и строка называют порт.</summary>
+    [Fact]
+    public void Замечание_к_удаче_видно_в_сводке()
+    {
+        var сводка = QueueReport.Build("Kerio A", [new("a.demo.local", DeployOutcomes.Succeeded, До, "Не отвечают по TLS порты: 12345.")]).ShouldNotBeNull();
+
+        сводка.Installed.ShouldBe(1);
+        сводка.Failed.ShouldBe(0);
+        сводка.Level.ShouldBe(AlertLevel.Warning);
+        сводка.Title.ShouldStartWith("🟠 ");
+        сводка.Rows.ShouldBe([new("a.demo.local", "Установлен", "Действует до 30.01.2027 12:00 UTC. Не отвечают по TLS порты: 12345.")]);
+    }
+
     [Fact]
     public void Все_встали_без_значка_уровень_сведений()
     {

@@ -277,6 +277,7 @@ internal static class ServerView
                     з.Sha256 is not null && string.Equals(з.Sha256, с.ServedSha256, StringComparison.Ordinal),
                     откуда,
                     выпуск?.CommonName,
+                    выпуск?.SerialNumber,
                     срок,
                     обновить,
                     заменён);

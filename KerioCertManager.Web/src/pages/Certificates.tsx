@@ -82,12 +82,12 @@ export function CertificatesPage() {
 
   const [km, known, { servers, warning_days: warning }] = data;
 
-  /** Серверы Kerio, на которые уходит выпуск: по умолчанию или как сертификат имени. */
+  /** Серверы Kerio, в хранилище которых лежит этот выпуск: другие выпуски того же имени не считаются. */
   const usedBy = (c: KnownCertificate) => {
-    return servers.flatMap(s =>
-      sameName(s.common_name, c.common_name) ? [{ server: s, role: t('по умолчанию') }]
-        : s.extras.some(e => sameName(e.common_name, c.common_name)) ? [{ server: s, role: t('по имени') }]
-          : []);
+    return servers.flatMap(s => {
+      const here = s.store.find(x => x.kmp_serial === c.serial_number && sameName(x.kmp_common_name, c.common_name));
+      return here ? [{ server: s, role: here.served ? t('по умолчанию') : t('по имени') }] : [];
+    });
   };
 
   const used = (c: KnownCertificate) => {

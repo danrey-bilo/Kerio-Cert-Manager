@@ -40,7 +40,8 @@ internal sealed record DeployResult(
     string? PreviousSha256,
     string? FailedStep,
     string? Error,
-    bool RollbackConfirmed = false);
+    bool RollbackConfirmed = false,
+    string? Warning = null);
 
 /// <summary>Параметры одной установки.</summary>
 internal sealed record DeployRequest(
@@ -254,7 +255,7 @@ internal sealed partial class KerioDeployer(
 
             if (проверка is not null)
             {
-                throw new DeployStepException(DeploySteps.Verify, проверка);
+                throw new DeployStepException(DeploySteps.Verify, проверка.Текст);
             }
 
             проверен = true;
@@ -521,8 +522,15 @@ internal sealed partial class KerioDeployer(
         }
     }
 
-    /// <summary>Ждать, пока все порты подают <paramref name="sha256"/>; <c>null</c> — дождались, иначе причина.</summary>
-    private async Task<string?> ДождатьсяAsync(
+    /// <summary>Срок ожидания вышел: что показали порты и какие из них не ответили.</summary>
+    private sealed record ОтказПортов(string Текст, IReadOnlyList<int> НеОтветили, bool ЕстьНовый, bool ЕстьДругой)
+    {
+        /// <summary>Новый подаётся, другого нет нигде: мешает только порт, который не отвечает.</summary>
+        public bool ТолькоНеОтветившие => ЕстьНовый && !ЕстьДругой;
+    }
+
+    /// <summary>Ждать, пока все порты подают <paramref name="sha256"/>; <c>null</c> — дождались, иначе что показали порты.</summary>
+    private async Task<ОтказПортов?> ДождатьсяAsync(
         KerioServer server, IReadOnlyList<int> порты, string sha256, TimeSpan срок, CancellationToken cancellationToken, string? serverName = null)
     {
         var хост = KerioConnector.BaseUri(server.BaseUrl).Host;
@@ -532,6 +540,9 @@ internal sealed partial class KerioDeployer(
         while (true)
         {
             var все = true;
+            var новый = false;
+            var другой = false;
+            var неОтветили = new List<int>();
 
             foreach (var порт in порты)
             {
@@ -540,12 +551,16 @@ internal sealed partial class KerioDeployer(
                     var подан = serverName is null
                         ? await tls.InspectAsync(хост, порт, cancellationToken)
                         : await tls.InspectAsync(хост, порт, serverName, cancellationToken);
-                    последнее[порт] = подан.Sha256 == sha256 ? $"Порт {порт} подаёт новый." : $"Порт {порт} подаёт {подан.Subject} до {подан.NotAfter:yyyy-MM-dd}.";
-                    все &= подан.Sha256 == sha256;
+                    var тот = подан.Sha256 == sha256;
+                    последнее[порт] = тот ? $"Порт {порт} подаёт новый." : $"Порт {порт} подаёт {подан.Subject} до {подан.NotAfter:yyyy-MM-dd}.";
+                    новый |= тот;
+                    другой |= !тот;
+                    все &= тот;
                 }
-                catch (TlsException ошибка)
+                catch (TlsException)
                 {
-                    последнее[порт] = $"Порт {порт}: {ошибка.Message}";
+                    последнее[порт] = $"Порт {порт} не отвечает по TLS.";
+                    неОтветили.Add(порт);
                     все = false;
                 }
             }
@@ -557,7 +572,11 @@ internal sealed partial class KerioDeployer(
 
             if (clock.GetUtcNow() >= до)
             {
-                return $"За {срок.TotalSeconds:0} с сервер не начал подавать новый сертификат. " + string.Join(' ', последнее.Values);
+                return new ОтказПортов(
+                    $"За {срок.TotalSeconds:0} с сервер не начал подавать новый сертификат. " + string.Join(' ', последнее.Values),
+                    неОтветили,
+                    новый,
+                    другой);
             }
 
             await Task.Delay(ШагПроверки, clock, cancellationToken);

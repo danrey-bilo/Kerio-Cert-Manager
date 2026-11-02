@@ -917,7 +917,7 @@ internal sealed class SyncCycle(
         установка.PreviousKerioCertificateId = итог.PreviousKerioId;
         установка.PreviousSha256 = дополнительный ? null : установка.PreviousSha256 ?? итог.PreviousSha256;
         установка.FailedStep = итог.FailedStep;
-        установка.Error = итог.Error;
+        установка.Error = итог.Error ?? итог.Warning;
 
         var пинБыл = сервер.TlsPinSha256;
 
@@ -1091,15 +1091,16 @@ internal sealed class SyncCycle(
                     await notifier.SendAsync(
                         сервер,
                         KerioMail.Deployed,
-                        $"Сертификат {установка.CommonName} установлен",
+                        итог.Warning is null ? $"Сертификат {установка.CommonName} установлен" : $"🟠 Сертификат {установка.CommonName} установлен",
                         дополнительный
                             ? $"Сертификат лежит в хранилище Kerio и подаётся для своего имени; сертификат по умолчанию не изменён."
                               + (итог.PreviousKerioId is { } убран ? $" Прежние версии ({убран}) убраны, чтобы Kerio подавал новую." : string.Empty)
+                              + (итог.Warning is { } замечание ? " " + замечание : string.Empty)
                             : "Прежний сертификат оставлен в хранилище Kerio для ручного возврата.",
                         строки,
                         установка.CommonName,
                         "deployed",
-                        AlertLevel.Info,
+                        итог.Warning is null ? AlertLevel.Info : AlertLevel.Warning,
                         cancellationToken);
                 }
 

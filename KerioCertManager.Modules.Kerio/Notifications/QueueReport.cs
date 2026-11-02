@@ -7,7 +7,7 @@ namespace KerioCertManager.Modules.Kerio.Notifications;
 /// <summary>Сводное письмо об очереди установки: сколько встало, сколько нет и итог по каждому имени.</summary>
 internal static class QueueReport
 {
-    /// <summary>Установка из журнала: имя, исход, срок нового сертификата, причина отказа.</summary>
+    /// <summary>Установка из журнала: имя, исход, срок нового сертификата, причина отказа или замечание к удаче.</summary>
     internal sealed record Entry(string CommonName, string Outcome, DateTimeOffset? NotAfter, string? Error);
 
     /// <summary>Строка таблицы письма: имя, итог, подробности.</summary>
@@ -35,16 +35,17 @@ internal static class QueueReport
 
         var встало = последние.Count(у => у.Outcome == DeployOutcomes.Succeeded);
         var нет = последние.Count - встало;
+        var внимание = нет > 0 || последние.Any(у => у.Error is not null);
 
         var заголовок = $"Очередь установки на «{serverName}» пройдена: установлено {Число(встало)} из {Число(последние.Count)}";
 
         return new Summary(
             встало,
             нет,
-            нет > 0 ? "🟠 " + заголовок : заголовок,
+            внимание ? "🟠 " + заголовок : заголовок,
             $"Очередь установки пройдена. Установлено и подтверждено по TLS: {Число(встало)}. Не удалось: {Число(нет)}.",
             [.. последние.Select(Строка)],
-            нет > 0 ? AlertLevel.Warning : AlertLevel.Info);
+            внимание ? AlertLevel.Warning : AlertLevel.Info);
     }
 
     private static Row Строка(Entry у) => у.Outcome switch
@@ -52,7 +53,8 @@ internal static class QueueReport
         DeployOutcomes.Succeeded => new Row(
             у.CommonName,
             "Установлен",
-            у.NotAfter is { } до ? $"Действует до {до.ToUniversalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)} UTC" : "—"),
+            (у.NotAfter is { } до ? $"Действует до {до.ToUniversalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture)} UTC" : "—")
+                + (у.Error is { } замечание ? ". " + замечание : string.Empty)),
         DeployOutcomes.RolledBack => new Row(у.CommonName, "Возвращён прежний", у.Error ?? "—"),
         _ => new Row(у.CommonName, "Не установлен", у.Error ?? "—"),
     };
