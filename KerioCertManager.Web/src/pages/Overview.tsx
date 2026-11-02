@@ -24,7 +24,7 @@ type Row = StoreCert & { tlsOnly?: boolean };
 
 const matches = (r: Row, filter: Filter) =>
   filter === 'all' ? true
-    : filter === 'foreign' ? r.origin === 'foreign'
+    : filter === 'foreign' ? counted(r) && r.origin === 'foreign'
       : counted(r) && r.state === filter;
 
 /** Свёрнутые и развёрнутые карточки браузер помнит до конца сеанса — по умолчанию все свёрнуты. */
@@ -152,9 +152,9 @@ export function OverviewPage() {
   );
 }
 
-/** Сертификаты сервера для обзора; хранилище ещё не читали — хотя бы то, что подаётся по TLS. */
+/** Сертификаты сервера для обзора — одна строка на имя, без заменённых версий; хранилище ещё не читали — то, что подаётся по TLS. */
 function rows(s: KerioServer, warning: number): Row[] {
-  if (s.store_checked_at) return s.store;
+  if (s.store_checked_at) return s.store.filter(z => !z.superseded);
   if (!s.served?.sha256) return [];
   const bare = (x: string | null | undefined) => (x ?? '').replace(/[^0-9a-f]/gi, '').replace(/^0+/, '').toLowerCase();
   const managed = Boolean(s.source && bare(s.source.serial_number) === bare(s.served.serial));
@@ -176,6 +176,7 @@ function rows(s: KerioServer, warning: number): Row[] {
     origin: managed ? 'managed' : 'foreign',
     kmp_common_name: null,
     update_from: null,
+    superseded: false,
     state: days === null ? 'unknown' : days < 0 ? 'expired' : days <= warning ? 'expiring' : 'ok',
     tlsOnly: true,
   }];
@@ -215,7 +216,7 @@ function ServerBlock({ server: s, rows: list, all, warning, filtered, open, onTo
   const counting = all.filter(counted);
   const expiring = counting.filter(r => r.state === 'expiring').length;
   const expired = counting.filter(r => r.state === 'expired').length;
-  const foreign = all.filter(r => r.origin === 'foreign').length;
+  const foreign = counting.filter(r => r.origin === 'foreign').length;
   const worst = managed.reduce<Managed | null>((w, m) => (!w || STATUS[m.status].rank < STATUS[w.status].rank ? m : w), null);
   const bodyId = 'ov-body-' + s.id;
 
@@ -390,7 +391,7 @@ function ServedBadges({ r, names }: { r: Row; names: string[] }) {
   return (
     <>
       {r.served && <span className="badge accent" title={t('Сертификат по умолчанию: Kerio подаёт его без SNI и для имён без своего сертификата')}>{t('по умолчанию')}</span>}
-      {names.filter(n => !r.served || n.toLowerCase() !== r.subject.toLowerCase()).map(n => (
+      {names.filter(n => n.toLowerCase() !== r.subject.toLowerCase()).map(n => (
         <span key={n} className="badge accent" title={t('Его Kerio подаёт клиентам, которые обращаются по имени {0}', n)}>{t('подаётся для {0}', n)}</span>
       ))}
     </>
@@ -403,7 +404,7 @@ function CertRow({ r, warning, names, note, action }: { r: Row; warning: number;
   const extra = r.dns_names.filter(n => n.toLowerCase() !== r.subject.toLowerCase());
 
   return (
-    <tr className={r.served || names.length ? 'served' : ''}>
+    <tr className={r.served ? 'served' : ''}>
       <td>
         <span className="cert-name">
           <b className="mono">{r.subject || '—'}</b>
@@ -437,7 +438,7 @@ function CertItem({ r, warning, names, note, action }: { r: Row; warning: number
   const state = CERT_STATE[r.state];
 
   return (
-    <li className={'ov-cert' + (r.served || names.length ? ' served' : '')}>
+    <li className={'ov-cert' + (r.served ? ' served' : '')}>
       <div className="ov-cert-top">
         <b className="mono">{r.subject || '—'}</b>
         <Status kind={state.dot}>{state.label}</Status>

@@ -180,6 +180,44 @@ public sealed class OverviewAlertsTests
         ServerView.Хранилище(сервер, kmp, 21, Сейчас).ShouldAllBe(з => з.UpdateFrom == null, "новый уже в хранилище");
     }
 
+    /// <summary>⚠ Версия имени раньше самой поздней, которую Kerio не подаёт, — заменена: в сводку не идёт, кнопки нет, в конце списка.</summary>
+    [Fact]
+    public void Старая_версия_рядом_с_новой_заменена()
+    {
+        var сервер = Сервер(installed: "aa", served: "aa");
+        сервер.ServedSha256 = "SHA-AA";
+        сервер.ServedByName = new(StringComparer.Ordinal) { ["legacy.example.com"] = "SHA-OLD2" };
+        сервер.Extras = [new ExtraCertificate { CommonName = "legacy.example.com", AddedAt = Сейчас }];
+        сервер.Store =
+        [
+            Лежит("server1", "aa", "SHA-AA", 60),
+            Лежит("server2", "a0", "SHA-OLD", -117),
+            Лежит("server3", "dd", "SHA-OLD2", -50, subject: "legacy.example.com"),
+            Лежит("server4", "ee", "SHA-NEW", 300, subject: "legacy.example.com"),
+            Лежит("server5", "ff", "SHA-ALONE", -10, subject: "alone.example.com"),
+        ];
+        IReadOnlyList<SourceCertificate> kmp =
+            [Выпуск("aa", 60), new("legacy.example.com", "f1", DateOnly.FromDateTime(Сейчас.AddDays(400).UtcDateTime), Сейчас, Сейчас)];
+
+        var хранилище = ServerView.Хранилище(сервер, kmp, 21, Сейчас);
+        var по = хранилище.ToDictionary(з => з.Id);
+
+        по["server2"].Superseded.ShouldBeTrue("рядом новее, и Kerio её не подаёт");
+        по["server2"].State.ShouldBe("expired", "срок показан честно, но в сводку не идёт");
+        по["server1"].Superseded.ShouldBeFalse();
+        по["server3"].Superseded.ShouldBeFalse("Kerio подаёт её для имени — клиенты её видят");
+        по["server3"].UpdateFrom.ShouldBe("legacy.example.com");
+        по["server4"].Superseded.ShouldBeFalse();
+        по["server5"].Superseded.ShouldBeFalse("истёк, но новее нет");
+        хранилище[^1].Id.ShouldBe("server2", "заменённые — в конце");
+
+        сервер.ServedByName = new(StringComparer.Ordinal);
+        по = ServerView.Хранилище(сервер, kmp, 21, Сейчас).ToDictionary(з => з.Id);
+        по["server3"].Superseded.ShouldBeTrue("больше не подаётся");
+        по["server3"].UpdateFrom.ShouldBeNull("у заменённой кнопки нет");
+        по["server4"].UpdateFrom.ShouldBe("legacy.example.com", "кнопка — у новейшей версии");
+    }
+
     /// <summary>⚠ Тот же идентификатор, имя и дата — ещё не тот же сертификат: текст читается каждый раз.</summary>
     [Fact]
     public async Task Текст_сертификата_читается_каждый_раз()

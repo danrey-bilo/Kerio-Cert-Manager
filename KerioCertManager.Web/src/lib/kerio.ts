@@ -140,8 +140,8 @@ export const CERT_STATE: Record<CertState, { dot: DotKind; label: string }> = {
   unknown: { dot: '', label: t('Срок неизвестен') },
 };
 
-/** Считается в сводке обзора: встроенный Kerio и запросы — только если подаются. */
-export const counted = (c: StoreCert) => c.served || (c.origin !== 'builtin' && c.origin !== 'request');
+/** Считается в сводке обзора: заменённые новой версией — нет; встроенный Kerio и запросы — только если подаются. */
+export const counted = (c: StoreCert) => !c.superseded && (c.served || (c.origin !== 'builtin' && c.origin !== 'request'));
 
 export const EVENT: Record<string, string> = {
   expiring: t('Скоро истекает'),

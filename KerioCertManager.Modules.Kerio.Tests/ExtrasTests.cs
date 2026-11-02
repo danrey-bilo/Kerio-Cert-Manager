@@ -173,6 +173,8 @@ public sealed class ExtrasTests
         продление.AutoDeploy = false;
         ServerView.Доп(продление, Доп("aa", "SHA-aa"), kmp, 21, Сейчас, dryRun: false).StatusText
             .ShouldContain("ждёт ручной установки", customMessage: "продление ждёт кнопки");
+        ServerView.Доп(продление, Доп("aa", "SHA-aa"), kmp, 21, Сейчас, dryRun: false, queued: true).StatusText
+            .ShouldContain("в очереди на установку", customMessage: "кнопку нажали — в очереди");
     }
 
     [Fact]

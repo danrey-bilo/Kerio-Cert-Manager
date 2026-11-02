@@ -221,11 +221,14 @@ The tiles at the top are both the summary and the only filter: **Servers**, **OK
 **Not from KMP**. Click a tile to filter, click it again to clear.
 
 Each server card shows the number of certificates in the store, problems, and the state of the linked KMP
-certificates. Expanded, it is one list of the certificates on the server: the **default** one is at the top and
-highlighted, then the selected certificates that are not in Kerio yet, then the rest of the store. Each line shows
-*served for name*, the origin (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**,
-**Kerio built-in**), valid until and state; when a selected certificate is not OK, the reason is right under its
-state (*Awaiting installation*, *Not installed: …*).
+certificates. Expanded, it is one list of the certificates on the server, one line per name: the **default** one
+is at the top and highlighted, then the selected certificates that are not in Kerio yet, then the rest of the store.
+A line shows the newest version of its name; older versions that Kerio no longer presents are not listed and are not
+counted in the tiles (if Kerio still presents an older one, both lines stay — the newer one says to restart the
+service). Each line shows the origin (**From KMP · managed by Kerio Cert Manager**, **In KMP**, **Not from KMP**,
+**Kerio built-in**), valid until and state, and *served for name* when Kerio presents it for another name (a wildcard,
+say); when a selected certificate is not OK, the reason is right under its state (*Awaiting installation*,
+*Not installed: …*).
 
 Buttons appear only for certificates selected for this server. When Key Manager Plus has a newer release that is not
 in Kerio yet, the status has the **Update** button. A selected certificate that is missing from the store is a

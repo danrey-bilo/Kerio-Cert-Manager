@@ -51,8 +51,13 @@ internal static class ServerView
         ArgumentNullException.ThrowIfNull(с);
         ArgumentNullException.ThrowIfNull(kmp);
 
+        var очередь = Очередь(с, requested ?? [], installing);
+
+        bool ВОчереди(string? имя) => имя is not null
+            && (очередь.Contains(имя, StringComparer.OrdinalIgnoreCase) || string.Equals(имя, installing, StringComparison.OrdinalIgnoreCase));
+
         var выпуск = с.CommonName is { } имя && kmp.TryGetValue(имя, out var найден) ? найден : null;
-        var (статус, текст) = Status(с, выпуск, warningDays, now, dryRun, paused);
+        var (статус, текст) = Status(с, выпуск, warningDays, now, dryRun, paused, ВОчереди(с.CommonName));
 
         int? дней = с.ServedNotAfter is { } до ? (int)Math.Floor((до - now).TotalDays) : null;
 
@@ -90,13 +95,13 @@ internal static class ServerView
             с.LastDeployAt,
             с.LastDeployError,
             с.NextAttemptAt,
-            Очередь(с, requested ?? [], installing),
+            очередь,
             installing,
             с.CreatedAt,
             с.UpdatedAt,
             bySerial is null ? [] : Хранилище(с, bySerial, kmp, warningDays, now),
             с.StoreCheckedAt,
-            [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun, paused))],
+            [.. с.Extras.Select(д => Доп(с, д, kmp, warningDays, now, dryRun, paused, ВОчереди(д.CommonName)))],
             с.ServedByName);
     }
 
@@ -122,7 +127,7 @@ internal static class ServerView
     /// <summary>Сертификат своего имени: что в KMP, лежит ли в хранилище, подаётся ли по имени.</summary>
     internal static ExtraOut Доп(
         KerioServer с, ExtraCertificate д, IReadOnlyDictionary<string, SourceCertificate> kmp, int warningDays, DateTimeOffset now, bool dryRun,
-        bool paused = false)
+        bool paused = false, bool queued = false)
     {
         var выпуск = kmp.TryGetValue(д.CommonName, out var найден) ? найден : null;
         var лежит = выпуск is null
@@ -149,7 +154,7 @@ internal static class ServerView
             : (ServerStatuses.UpdatePending, dryRun
                 ? "Новый выпуск — пробный режим: проверен, но в Kerio не ставится."
                 // ⚠ Как в ExtraPlanner: первая установка не ждёт выключателя сервера, общая пауза держит всё.
-                : !paused && (с.AutoDeploy || (д.InstalledSerial is null && !с.Store.Any(з => ExtraPlanner.Того(з, д.CommonName))))
+                : queued || (!paused && (с.AutoDeploy || (д.InstalledSerial is null && !с.Store.Any(з => ExtraPlanner.Того(з, д.CommonName)))))
                     ? "Новый выпуск — в очереди на установку." : "Новый выпуск — ждёт ручной установки.");
 
         return new ExtraOut(
@@ -189,6 +194,13 @@ internal static class ServerView
     {
         var ведомые = с.ManagedNames().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var лежат = с.Store.Where(з => з.Serial is not null).Select(з => Fingerprints.Serial(з.Serial!)).ToHashSet(StringComparer.Ordinal);
+        var подаются = с.ServedByName.Values.Append(с.ServedSha256).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+        // Самый поздний срок каждого имени: версия раньше него, которую Kerio не подаёт, заменена и в сводку не идёт.
+        var новейший = с.Store
+            .Where(з => з.NotAfter is not null)
+            .GroupBy(з => з.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(г => г.Key, г => г.Max(з => з.NotAfter!.Value), StringComparer.OrdinalIgnoreCase);
 
         return [.. с.Store
             .Select(з =>
@@ -212,8 +224,14 @@ internal static class ServerView
                     : конец - now <= TimeSpan.FromDays(warningDays) ? "expiring"
                     : "ok";
 
+                var заменён = (з.Sha256 is null || !подаются.Contains(з.Sha256))
+                    && з.NotAfter is { } мой
+                    && новейший.TryGetValue(з.Subject, out var свежее)
+                    && свежее > мой;
+
                 // ⚠ «Обновить» — только у выбранного для сервера имени: в KMP есть выпуск новее, и его ещё нет в хранилище.
-                var обновить = откуда is not ("builtin" or "request")
+                var обновить = !заменён
+                    && откуда is not ("builtin" or "request")
                     && ведомые.Contains(з.Subject)
                     && текущие.TryGetValue(з.Subject, out var свежий)
                     && !лежат.Contains(Fingerprints.Serial(свежий.SerialNumber))
@@ -238,16 +256,19 @@ internal static class ServerView
                     откуда,
                     выпуск?.CommonName,
                     срок,
-                    обновить);
+                    обновить,
+                    заменён);
             })
             .OrderByDescending(з => з.Served)
+            .ThenBy(з => з.Superseded)
             .ThenBy(з => з.Origin switch { "managed" => 0, "kmp" => 1, "foreign" => 2, "builtin" => 3, _ => 4 })
             .ThenBy(з => з.NotAfter ?? DateTimeOffset.MaxValue)];
     }
 
     /// <summary>Самое важное о сервере одним словом и фразой.</summary>
     internal static (string Code, string Text) Status(
-        KerioServer с, SourceCertificate? выпуск, int warningDays, DateTimeOffset now, bool dryRun = false, bool paused = false)
+        KerioServer с, SourceCertificate? выпуск, int warningDays, DateTimeOffset now, bool dryRun = false, bool paused = false,
+        bool queued = false)
     {
         if (!с.Enabled)
         {
@@ -280,7 +301,7 @@ internal static class ServerView
         {
             return (ServerStatuses.UpdatePending, dryRun
                 ? "В Key Manager Plus новый выпуск — пробный режим: проверен, но в Kerio не ставится."
-                : !paused && (с.AutoDeploy || с.InstalledSerial is null)
+                : queued || (!paused && (с.AutoDeploy || с.InstalledSerial is null))
                     ? "В Key Manager Plus новый выпуск — в очереди на установку."
                     : "В Key Manager Plus новый выпуск — ждёт ручной установки.");
         }
