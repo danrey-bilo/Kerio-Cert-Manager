@@ -95,8 +95,7 @@ Connect: замечает продление, ставит новый серти
 3. `migrate` — схема базы и первый администратор.
 4. `docker compose up -d` и откройте адрес панели.
 
-Образ закрытый: `danreero/kerio_cert_manager` в Docker Hub. Перед скачиванием войдите с токеном доступа только для
-чтения (`docker login`; в Portainer — **Registries → Add registry**). Закрепите версию в `KCM_IMAGE` и обновляйте
+Образ открытый: `danreero/kerio_cert_manager` в Docker Hub. Закрепите версию в `KCM_IMAGE` и обновляйте
 осознанно.
 
 ## 4. Первый вход

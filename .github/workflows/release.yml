@@ -1,5 +1,5 @@
-# Тег vX.Y.Z → тесты, проверка образа и страница релиза с архивами. Секреты не нужны: образ закрыт, поэтому для проверки
-# он собирается здесь из того же Dockerfile, а в Docker Hub его заранее публикует scripts/publish-image.sh.
+# Тег vX.Y.Z → тесты, проверка опубликованного образа и страница релиза с архивами. Секреты не нужны:
+# образ публикуется заранее (scripts/publish-image.sh), а открытый образ Docker Hub скачивается без входа.
 name: release
 
 on:
@@ -48,10 +48,14 @@ jobs:
           done
           grep -q "^## \[$VERSION\]" CHANGELOG.md || fail "CHANGELOG.md: нет раздела $VERSION"
 
-      - name: Образ для проверки
+      - name: Образ из Docker Hub
         env:
           VERSION: ${{ steps.v.outputs.version }}
-        run: docker buildx build --pull --load -f KerioCertManager.Api/Dockerfile --build-arg "VERSION=$VERSION" -t "$IMAGE:$VERSION" .
+        run: |
+          docker pull "$IMAGE:$VERSION" || {
+            echo "::error::Нет образа $IMAGE:$VERSION — сначала ./scripts/publish-image.sh $VERSION"
+            exit 1
+          }
 
       - name: Уязвимости образа
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -68,6 +72,7 @@ jobs:
         run: |
           PKG="kerio-cert-manager-$TAG"
           mkdir -p "pkg/$PKG"
+          docker save "$IMAGE:$VERSION" -o "pkg/$PKG/kerio-cert-manager-image-$TAG.tar"
           sed "s|\${KCM_IMAGE:-[^}]*}|\${KCM_IMAGE:-$IMAGE:$VERSION}|" deploy/portainer/docker-compose.yml \
             > "pkg/$PKG/docker-compose.yml"
           sed "s|^KCM_IMAGE=.*|KCM_IMAGE=$IMAGE:$VERSION|" deploy/portainer/.env.example > "pkg/$PKG/.env.example"

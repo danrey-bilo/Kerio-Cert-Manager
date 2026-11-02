@@ -4,15 +4,15 @@ Version 2.0 — November 2026
 Required Notice: Copyright (c) 2026 danrey. All rights reserved.
 
 Proprietary software. Use requires the licensor's permission. The source code is
-confidential.
+confidential, even though the official builds can be downloaded from Docker Hub.
 
 1. Definitions
 
 "Software" means Kerio Cert Manager: the source code, the official builds and the
 documentation.
 
-"Official builds" means the container images and release archives that the licensor
-makes available to you.
+"Official builds" means the container images that the licensor publishes on Docker Hub
+as danreero/kerio_cert_manager and the release archives that the licensor gives you.
 
 "You" means the individual or the organization that the licensor has permitted to use
 the Software, and "your organization" includes the people working for it.
@@ -30,9 +30,12 @@ the Software.
 
 3. Confidentiality
 
-The source code, the official builds and the documentation are confidential. You may
-share them only with people in your organization who need them to operate the Software,
-and you must protect them from access by anyone else.
+The source code and the documentation are confidential. You may share the documentation
+and the deployment files only with people in your organization who need them to operate
+the Software, and you must protect them from access by anyone else.
+
+That the official builds can be downloaded from Docker Hub gives no permission to use
+them and no right to the source code or to anything recovered from them.
 
 4. Restrictions
 

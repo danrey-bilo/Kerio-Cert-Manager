@@ -4,9 +4,6 @@
 A certificate is renewed in Key Manager Plus, and minutes later it is installed on every Kerio Connect server,
 verified over TLS on every port, rolled back if it does not come up, and the administrators get a report by e-mail.
 
-Documentation, changelog and releases are in the private repository
-[github.com/danrey-bilo/Kerio-Cert-Manager](https://github.com/danrey-bilo/Kerio-Cert-Manager), access by invitation.
-
 ## Tags
 
 | Tag | What it is |
@@ -14,20 +11,6 @@ Documentation, changelog and releases are in the private repository
 | `latest` | The newest release |
 | `1.0` | The newest 1.0.x |
 | `1.0.9` | A fixed version — recommended for servers where updates are planned |
-
-## Run with Portainer
-
-1. **Registries → Add registry → DockerHub**: your Docker Hub login and a read-only access token.
-2. Download `kerio-cert-manager-vX.Y.Z.zip` from [Releases](https://github.com/danrey-bilo/Kerio-Cert-Manager/releases/latest):
-   `docker-compose.yml`, `.env.example` with hints and a step-by-step README.
-3. Fill in `.env.example`: the master key, two database passwords, the Cloudflare Tunnel token and the first
-   administrator (the commands to generate them are in the file).
-4. **Stacks → Add stack → Upload** `docker-compose.yml` → **Load variables from .env file** → **Deploy the stack**.
-   The image is pulled from here; the `migrate` service prepares the database before the service starts.
-5. To update: set a new version in `KCM_IMAGE` → **Update the stack**.
-
-Command-line installation with secrets in files:
-[README](https://github.com/danrey-bilo/Kerio-Cert-Manager#installation-from-the-command-line).
 
 ## What you need
 
@@ -44,5 +27,6 @@ publishing and ships with an SBOM and build provenance.
 
 ## License
 
-Proprietary software: use requires the owner's permission, and the code is confidential —
-[LICENSE](https://github.com/danrey-bilo/Kerio-Cert-Manager/blob/main/LICENSE).
+Proprietary software, all rights reserved. The image is public, but using it requires the owner's permission, and
+reverse engineering it is not allowed. The source code is not public. Third-party open-source components inside the
+image remain under their own licenses.

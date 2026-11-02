@@ -98,8 +98,7 @@ Installation is described step by step in the [README](../README.md#installation
 3. `migrate` — the database schema and the first administrator.
 4. `docker compose up -d` and open the panel address.
 
-The image is private: `danreero/kerio_cert_manager` on Docker Hub. Sign in with a read-only access token before pulling
-it (`docker login`; in Portainer — **Registries → Add registry**). Pin a version in `KCM_IMAGE` and update it on
+The image is public: `danreero/kerio_cert_manager` on Docker Hub. Pin a version in `KCM_IMAGE` and update it on
 purpose.
 
 ## 4. First sign-in

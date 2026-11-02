@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://hub.docker.com/r/danreero/kerio_cert_manager"><img alt="Docker Hub" src="https://img.shields.io/docker/v/danreero/kerio_cert_manager?sort=semver&style=flat-square&logo=docker&logoColor=white&label=docker%20hub&color=2496ed"></a>
   <a href="LICENSE.ru.md"><img alt="Лицензия: закрытое ПО" src="https://img.shields.io/badge/license-proprietary-0f172a?style=flat-square"></a>
   <img alt="Kerio Connect 9.0.2+" src="https://img.shields.io/badge/Kerio%20Connect-9.0.2%2B%20%C2%B7%20tested%2010.0.6-0ea5e9?style=flat-square">
   <img alt="Key Manager Plus 7.1.1+" src="https://img.shields.io/badge/Key%20Manager%20Plus-7.1.1%2B-0ea5e9?style=flat-square">
@@ -58,7 +59,7 @@ Kerio Cert Manager делает это за вас:
 | **Веб-панель** | **Обзор** — хранилище каждого Kerio: что подаётся, что из KMP, что положено вручную, что истекает. **Серверы** — связь, синхронизация, мастер подключения, правка, удаление с кодом 2FA. **Оповещения** — события, пороги, получатели, пробное письмо, история. Ещё: сертификаты KMP (только просмотр), журнал установок, журнал действий с выгрузкой CSV, настройки, пользователи. Работает и на телефоне |
 | **Три языка** | Русский, английский, украинский — каждый выбирает свой в **Профиле**. На нём и панель, и тексты сервера (ошибки, шаги установки, состояния); у писем — свой язык |
 | **Безопасность** | Пароль + приложение-аутентификатор (TOTP), свежий код перед опасными действиями, AES-256-GCM для всех секретов, строгий TLS к KMP, закреплённый отпечаток или УЦ для Kerio, журнал действий с цепочкой хешей |
-| **Развёртывание** | Один закрытый образ в Docker Hub (`danreero/kerio_cert_manager`), PostgreSQL и Cloudflare Tunnel — без входящих портов на сервере. Удобно ставится в Portainer |
+| **Развёртывание** | Один открытый образ в Docker Hub ([`danreero/kerio_cert_manager`](https://hub.docker.com/r/danreero/kerio_cert_manager)), PostgreSQL и Cloudflare Tunnel — без входящих портов на сервере. Удобно ставится в Portainer |
 
 ## Скриншоты
 
@@ -139,17 +140,17 @@ flowchart LR
 ## Установка через Portainer
 
 Архив **`kerio-cert-manager-vX.Y.Z.zip`** из [Releases](../../releases) — всё для стека: `docker-compose.yml`,
-`.env.example` с подсказками и пошаговый README. Стек сам скачает закрытый образ `danreero/kerio_cert_manager` из
-Docker Hub, когда Portainer сможет туда войти.
+`.env.example` с подсказками и пошаговый README. Стек сам скачает открытый образ
+[`danreero/kerio_cert_manager`](https://hub.docker.com/r/danreero/kerio_cert_manager) из Docker Hub; архив образа в
+релизе — только для серверов без интернета (**Images → Import**).
 
-1. **Registries → Add registry → DockerHub**: логин Docker Hub и токен доступа только для чтения.
-2. Заполните `.env.example`: `KCM_MASTER_KEK` (`openssl rand -base64 32`), `POSTGRES_PASSWORD` и
+1. Заполните `.env.example`: `KCM_MASTER_KEK` (`openssl rand -base64 32`), `POSTGRES_PASSWORD` и
    `KCM_APP_PASSWORD` (`openssl rand -hex 24`, разные), `CLOUDFLARE_TUNNEL_TOKEN`, `KCM_INIT_ADMIN_EMAIL` и
    `KCM_INIT_ADMIN_PASSWORD`.
-3. **Stacks → Add stack** → имя `kerio-cert-manager` → **Upload** → `docker-compose.yml` →
+2. **Stacks → Add stack** → имя `kerio-cert-manager` → **Upload** → `docker-compose.yml` →
    **Load variables from .env file** → **Deploy the stack**.
-4. В Cloudflare у туннеля: **Public Hostname** → `HTTP` → `api:8001`. Включите Cloudflare Access (ниже).
-5. В течение часа войдите администратором и подключите приложение-аутентификатор; затем очистите
+3. В Cloudflare у туннеля: **Public Hostname** → `HTTP` → `api:8001`. Включите Cloudflare Access (ниже).
+4. В течение часа войдите администратором и подключите приложение-аутентификатор; затем очистите
    `KCM_INIT_ADMIN_PASSWORD` в переменных стека → **Update the stack**.
 
 Стек превращает переменные в секреты Docker — в `docker inspect` их не видно. Служба `migrate` накатывает миграции
@@ -167,11 +168,8 @@ Docker Hub, когда Portainer сможет туда войти.
 unzip kerio-cert-manager-cli-v*.zip && cd kerio-cert-manager
 ```
 
-**2. Образ.** Образ в Docker Hub закрытый: войдите с токеном доступа только для чтения и скачайте его.
-
-```bash
-docker login -u ваш-логин-docker-hub
-```
+**2. Образ.** Открытый образ из Docker Hub (без интернета — `docker load -i kerio-cert-manager-image-vX.Y.Z.tar` из
+основного архива релиза):
 
 ```bash
 docker pull danreero/kerio_cert_manager:1.0.9
@@ -341,8 +339,7 @@ git clone https://github.com/danrey-bilo/Kerio-Cert-Manager.git && cd Kerio-Cert
 docker compose -f docker-compose.demo.yml up -d --build
 ```
 
-Сервис берётся из Docker Hub (образ закрытый, сначала выполните `docker login`), на месте собирается только
-эмулятор.
+Сервис берётся из Docker Hub, на месте собирается только эмулятор.
 
 | Что | Адрес | Вход |
 |---|---|---|
@@ -369,14 +366,15 @@ docker compose -f docker-compose.demo.yml up -d --build
 
 ## Лицензия
 
-Kerio Cert Manager — **закрытое ПО**: пользоваться можно только с разрешения владельца, код конфиденциален. Полный
-текст — [LICENSE](LICENSE) ([перевод](LICENSE.ru.md)).
+Kerio Cert Manager — **закрытое ПО**: пользоваться можно только с разрешения владельца, исходный код конфиденциален.
+Образ в Docker Hub открыт, но это не даёт права пользоваться им или восстанавливать из него код. Полный текст —
+[LICENSE](LICENSE) ([перевод](LICENSE.ru.md)).
 
 | ✅ С разрешения владельца | ❌ Нельзя без письменного разрешения |
 |---|---|
 | Устанавливать и использовать официальные сборки в пределах разрешения | Смотреть и копировать исходный код целиком или частями |
 | Хранить копии официальных сборок и править поставляемые файлы развёртывания для работы сервиса | Изменять код, собирать и запускать изменённые версии, восстанавливать код из сборок |
-| Передавать их сотрудникам организации, которые эксплуатируют сервис | Распространять, продавать или сублицензировать код или сборки |
+| Передавать файлы развёртывания и документацию сотрудникам организации, которые эксплуатируют сервис | Распространять, продавать или сублицензировать код или сборки |
 
 Kerio и Kerio Connect — товарные знаки их владельцев; ManageEngine и Key Manager Plus — товарные знаки Zoho
 Corporation. Проект с ними не связан. Сторонние открытые компоненты внутри сборок — под своими лицензиями.

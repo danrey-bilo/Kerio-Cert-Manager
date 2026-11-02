@@ -2,7 +2,7 @@
 #   ./scripts/gen-secrets.sh
 #   ./scripts/set-tunnel-token.sh # токен туннеля — в файл секрета, не в .env
 #   cp .env.example .env
-#   docker compose pull api                # закрытый образ из Docker Hub: сначала docker login
+#   docker compose pull api                # образ из Docker Hub; без интернета — docker load -i архив релиза
 #   docker compose run --rm migrate
 #   docker compose run --rm api create-superadmin --email admin@example.com
 #   docker compose up -d
