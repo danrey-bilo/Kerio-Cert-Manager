@@ -30,4 +30,5 @@ KerioCertManager.Web/dist
 **/values.dev.yaml
 LICENSE
 README.md
+CLAUDE.md
 !**/.gitignore
