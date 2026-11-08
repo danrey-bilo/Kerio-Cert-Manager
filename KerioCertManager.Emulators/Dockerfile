@@ -7,7 +7,7 @@ COPY ["KerioCertManager.Emulators/", "KerioCertManager.Emulators/"]
 RUN dotnet publish "KerioCertManager.Emulators/KerioCertManager.Emulators.csproj" -c Release -o /publish /p:UseAppHost=false
 
 # Не chiseled: эмулятору нужен системный пакет корней, чтобы собрать пакет доверия для сервиса.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble@sha256:1a48394b6f29d3a32c79d9edecd4abda0ecbe8776d567dbfc4590ed6979c740c
 WORKDIR /app
 COPY --from=build /publish .
 ENV EMULATOR_DATA=/data
