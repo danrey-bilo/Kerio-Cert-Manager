@@ -7,7 +7,7 @@ WORKDIR /app
 EXPOSE 8001
 
 # Веб-панель; манифесты отдельно — слой `npm ci` кэшируется.
-FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS web
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS web
 WORKDIR /web
 COPY ["KerioCertManager.Web/package.json", "KerioCertManager.Web/package-lock.json", "./"]
 RUN npm ci --no-audit --no-fund --ignore-scripts
