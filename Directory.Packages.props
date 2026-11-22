@@ -63,7 +63,7 @@
     <!-- MIT: module-crypto -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <!-- PostgreSQL: module-hosting, замок одного экземпляра -->
-    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Npgsql" Version="11.0.0" />
     <!-- Apache-2.0: module-hosting, приёмник логов -->
     <PackageVersion Include="Serilog" Version="4.4.0" />
     <!-- MIT: только для сборки module-hosting, Redis не используется -->
