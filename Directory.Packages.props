@@ -9,7 +9,7 @@
   <!-- Журнал -->
   <ItemGroup>
     <!-- Apache-2.0: структурные логи -->
-    <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageVersion Include="Serilog.AspNetCore" Version="11.0.0" />
     <!-- Apache-2.0: компактный JSON в stdout -->
     <PackageVersion Include="Serilog.Formatting.Compact" Version="3.0.0" />
     <!-- Apache-2.0: вывод в консоль -->
